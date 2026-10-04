@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Roule ou pas">
+<meta name="theme-color" content="#1c2329">
+<link rel="apple-touch-icon" href="data:image/png;base64,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">
+<link rel="icon" href="data:image/png;base64,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">
+<title>Roule ou Pas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout : une colonne mobile, trajet par défaut en tête, cartes itinéraire empilées */
+:root{
+  --bg:#eceff2; --surface:#ffffff; --ink:#1c2329; --muted:#5b6672; --line:#d4d9de;
+  --accent:#f2b705; --accent-ink:#1c2329; --road:#3a444d; --road-ink:#e8ecef; --danger:#b8352a; --warn:#d9822b;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --r:12px; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#14191e; --surface:#1f262d; --ink:#e8ecef; --muted:#94a0ab; --line:#313a43;
+  --accent:#f5c518; --accent-ink:#14191e; --road:#2a323a; --road-ink:#e8ecef; --danger:#e0655a; --warn:#f0a050; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);
+  padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);min-height:100vh;
+  -webkit-tap-highlight-color:transparent}
+button,input{font:inherit;color:inherit}
+button:disabled{opacity:.35}
+.wrap{max-width:560px;margin:0 auto;padding-inline:16px;padding-block:0 104px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:18px 14px}
+.brand{font:700 30px/1 var(--display);letter-spacing:.01em;text-transform:uppercase;margin:0}
+.brand span{background:var(--accent);color:var(--accent-ink);padding:0 6px;border-radius:4px}
+.eyebrow{font:600 12px/1 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h2{font:700 22px/1.15 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:700 18px/1.15 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:0}
+.btn{border:0;border-radius:10px;padding:12px 16px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;justify-content:center}
+.btn-primary{background:var(--accent);color:var(--accent-ink)}
+.btn-ghost{background:transparent;border:1px solid var(--line)}
+.btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger)}
+.btn:focus-visible,input:focus-visible,.card:focus-visible,.icon-btn:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.icon-btn{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;cursor:pointer;padding:0}
+.stack{display:flex;flex-direction:column;gap:18px}
+.list{display:flex;flex-direction:column;gap:12px}
+
+/* cartes */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;grid-template-columns:84px 1fr;gap:14px;cursor:pointer;text-align:left;width:100%}
+.card.hero{border:2px solid var(--accent)}
+.card .meta{min-width:0;display:flex;flex-direction:column;gap:4px}
+.card .name{font:700 20px/1.1 var(--display);text-transform:uppercase}
+.card .path{color:var(--muted);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.legs{display:flex;flex-direction:column;gap:2px;font-size:14px;font-variant-numeric:tabular-nums;margin-top:2px}
+.legs b{font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.chip{font-size:13px;font-weight:600;padding:3px 8px;border-radius:999px;background:var(--bg);font-variant-numeric:tabular-nums}
+.chip.accent{background:var(--accent);color:var(--accent-ink)}
+.chip.todo{background:transparent;border:1px dashed var(--muted);color:var(--muted)}
+.sketch{width:84px;height:84px;border-radius:8px;background:var(--road);display:block}
+.fab{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));box-shadow:0 6px 20px rgba(0,0,0,.25);padding:14px 22px;font-size:17px}
+
+/* éditeur */
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field label,.lbl{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+input[type=text],input[type=search],input[type=time]{width:100%;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:12px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.step:first-child{border-top:0}
+.dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font:700 14px/1 var(--display);background:var(--road);color:var(--road-ink)}
+.step.end .dot{background:var(--accent);color:var(--accent-ink)}
+.step .txt{min-width:0}
+.step .city{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.step .sub{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.step .acts{display:flex;gap:4px}
+.step .acts .icon-btn{width:34px;height:34px}
+.results{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.results button{border:0;border-top:1px solid var(--line);background:transparent;text-align:left;padding:11px 12px;cursor:pointer}
+.results button:first-child{border-top:0}
+.results small{color:var(--muted);display:block}
+.hint{font-size:14px;color:var(--muted);margin:0}
+.err{color:var(--danger);font-size:14px;margin:0}
+.slot{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:10px;background:var(--bg)}
+.slot-out{font-size:14px;font-variant-numeric:tabular-nums}
+.slot-out b{font-weight:600}
+.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;text-align:center}
+.summary b{display:block;font:700 26px/1 var(--display);font-variant-numeric:tabular-nums}
+.summary span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.switch{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600}
+.switch input{width:22px;height:22px;accent-color:var(--accent)}
+.bar{display:flex;gap:10px;flex-wrap:wrap}
+.bar .btn{flex:1 1 140px}
+.confirm{display:flex;flex-direction:column;gap:10px;border:1px solid var(--danger);border-radius:10px;padding:12px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;white-space:nowrap}
+/* météo */
+.days{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.days::-webkit-scrollbar{display:none}
+.day{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;text-align:center;line-height:1.15}
+.day small{display:block;font-size:12px;color:var(--muted)}
+.day[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.day[aria-pressed="true"] small{color:inherit;opacity:.75}
+.wx{display:flex;flex-direction:column;gap:10px}
+.wx-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.wx-sky{font-weight:600}
+.wx-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.wx-cell{background:var(--bg);border-radius:8px;padding:8px 6px;text-align:center;min-width:0}
+.wx-cell b{display:block;font:700 20px/1.05 var(--display);font-variant-numeric:tabular-nums;white-space:nowrap}
+.wx-cell span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.wx-cell small{display:block;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.card .wx{grid-column:1 / -1;border-top:1px solid var(--line);padding-top:12px}
+.flag{font-size:13px;font-weight:600;padding:6px 10px;border-radius:8px;background:var(--bg);border-left:4px solid var(--warn)}
+.pts{overflow-x:auto}
+.pts table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums;min-width:360px}
+.pts th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:6px 6px 6px 0;border-bottom:1px solid var(--line)}
+.pts td{padding:8px 6px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.pts td:first-child{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.pts td small{display:block;color:var(--muted);font-weight:400}
+.past{opacity:.55}
+@media (prefers-reduced-motion:no-preference){.card{transition:transform .12s}.card:active{transform:scale(.985)}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+const KEY = "rouleoupas.routes.v1";
+const FALLBACK_KMH = 55, FALLBACK_FACTOR = 1.3; // utilisés seulement si le calcul routier échoue
+
+/* ---------- modèle & stockage ---------- */
+function defaultRoute(){
+  return {id:"maison-boulot", name:"Maison ↔ Boulot", isDefault:true, points:[],
+    aller:{start:"07:30", end:"08:00"}, retour:{on:true, start:"17:30", end:"18:00"},
+    legs:null, legsKey:"", legsSource:""};
+}
+function migrate(r){
+  if(!r.aller){ const d=r.departure||"08:00"; r.aller={start:d,end:d}; }
+  if(!r.retour) r.retour={on:false,start:"17:30",end:"18:00"};
+  delete r.departure; delete r.speed;
+  if(!("legs" in r)){ r.legs=null; r.legsKey=""; r.legsSource=""; }
+  return r;
+}
+function load(){
+  let routes=null;
+  try{ const raw=localStorage.getItem(KEY); if(raw) routes=JSON.parse(raw); }catch(e){}
+  routes=(routes||[]).filter(r=>!r.example).map(migrate);
+  if(!routes.length) routes.push(defaultRoute());
+  return routes;
+}
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(state.routes)); return true; }
+  catch(e){ toast("Enregistrement impossible sur cet appareil"); return false; }
+}
+const state = { routes: load(), view:"list", draft:null, confirmDelete:false, routing:false, routingErr:false };
+save();
+
+/* ---------- temps ---------- */
+const toMin = s => { const [h,m]=(s||"00:00").split(":").map(Number); return h*60+m; };
+const fmtTime = min => { const t=((Math.round(min)%1440)+1440)%1440; return String(Math.floor(t/60)).padStart(2,"0")+":"+String(t%60).padStart(2,"0"); };
+const fmtDur = min => { const r=Math.round(min); const h=Math.floor(r/60), m=r%60; return h? `${h} h ${String(m).padStart(2,"0")}` : `${m} min`; };
+const fmtKm = km => (km<10? km.toFixed(1).replace(".",",") : Math.round(km).toLocaleString("fr-FR"))+" km";
+const fmtSlot = (a,b) => a===b ? fmtTime(a) : `${fmtTime(a)}–${fmtTime(b)}`;
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---------- calcul routier ---------- */
+const keyOf = pts => pts.map(p=>p.lat.toFixed(5)+","+p.lon.toFixed(5)).join(";");
+function haversine(a,b){
+  const R=6371, t=x=>x*Math.PI/180, dLat=t(b.lat-a.lat), dLon=t(b.lon-a.lon);
+  const h=Math.sin(dLat/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function estimateLegs(pts){
+  return pts.slice(1).map((p,i)=>{ const km=haversine(pts[i],p)*FALLBACK_FACTOR; return {km, min:km/FALLBACK_KMH*60}; });
+}
+async function fetchLegs(pts){
+  const coords=pts.map(p=>p.lon+","+p.lat).join(";");
+  const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=false&steps=false`);
+  if(!r.ok) throw new Error(r.status);
+  const d=await r.json(); if(d.code!=="Ok"||!d.routes?.length) throw new Error(d.code);
+  return d.routes[0].legs.map(l=>({km:l.distance/1000, min:l.duration/60}));
+}
+// tronçons pour un ordre de points ; le retour réutilise les tronçons de l'aller, inversés
+function legsFor(route, reverse){
+  let legs=route.legs && route.legsKey===keyOf(route.points) ? route.legs : estimateLegs(route.points);
+  return reverse ? legs.slice().reverse() : legs;
+}
+function timeline(route, reverse, startMin){
+  const pts = reverse ? route.points.slice().reverse() : route.points;
+  const legs = legsFor(route, reverse);
+  let km=0, m=startMin; const out=[{pt:pts[0],km:0,min:m}];
+  legs.forEach((l,i)=>{ km+=l.km; m+=l.min; out.push({pt:pts[i+1],km,min:m}); });
+  return out;
+}
+const totals = route => { const l=legsFor(route,false); return {km:l.reduce((s,x)=>s+x.km,0), min:l.reduce((s,x)=>s+x.min,0)}; };
+const isEstimate = route => !(route.legs && route.legsKey===keyOf(route.points) && route.legsSource==="osrm");
+
+async function ensureRouting(){
+  const d=state.draft; if(!d || d.points.length<2) return;
+  const k=keyOf(d.points);
+  if(d.legsKey===k && d.legsSource==="osrm") return;
+  if(state.routing===k) return;
+  state.routing=k; state.routingErr=false;
+  try{
+    const legs=await fetchLegs(d.points);
+    if(state.draft!==d || keyOf(d.points)!==k) return;
+    d.legs=legs; d.legsKey=k; d.legsSource="osrm";
+  }catch(e){
+    if(state.draft===d){ d.legs=estimateLegs(d.points); d.legsKey=k; d.legsSource="estimate"; state.routingErr=true; }
+  }finally{ if(state.routing===k) state.routing=false; if(state.view==="edit") render(); }
+}
+
+/* ---------- croquis du tracé ---------- */
+function sketch(points, size=84){
+  if(points.length<2) return `<svg class="sketch" viewBox="0 0 ${size} ${size}" aria-hidden="true"><text x="50%" y="54%" text-anchor="middle" font-size="26" fill="var(--road-ink)" opacity=".5">?</text></svg>`;
+  const xs=points.map(p=>p.lon*Math.cos(p.lat*Math.PI/180)), ys=points.map(p=>-p.lat);
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  const span=Math.max(maxX-minX,maxY-minY)||1, pad=14, s=(size-pad*2)/span;
+  const ox=(size-(maxX-minX)*s)/2, oy=(size-(maxY-minY)*s)/2;
+  const pts=points.map((p,i)=>[ox+(xs[i]-minX)*s, oy+(ys[i]-minY)*s]);
+  const d=pts.map(p=>p.map(v=>v.toFixed(1)).join(",")).join(" ");
+  const dots=pts.map((p,i)=>{const end=i===0||i===pts.length-1;return `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${end?4.5:3}" fill="${end?'var(--accent)':'var(--road-ink)'}"/>`;}).join("");
+  return `<svg class="sketch" viewBox="0 0 ${size} ${size}" aria-hidden="true"><polyline points="${d}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-dasharray="6 5" stroke-linecap="round" stroke-linejoin="round"/>${dots}</svg>`;
+}
+
+/* ---------- météo ---------- */
+const WX_KEY="rouleoupas.wx.v1", WX_TTL=30*60*1000, WX_RETRY=60*1000;
+const wx={cache:{}, pending:{}, err:{}};
+try{ wx.cache=JSON.parse(localStorage.getItem(WX_KEY))||{}; }catch(e){}
+const isoDate = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const addDays = (iso,n) => { const [y,m,d]=iso.split("-").map(Number); return isoDate(new Date(y,m-1,d+n)); };
+const todayIso = () => isoDate(new Date());
+const nowMin = () => { const d=new Date(); return d.getHours()*60+d.getMinutes(); };
+const ready = r => r.points.length>=2;
+function defaultDay(route){
+  // une fois le dernier trajet du jour terminé, on affiche demain
+  if(!ready(route)) return todayIso();
+  const last=route.retour.on?route.retour:route.aller;
+  const end=timeline(route,route.retour.on,toMin(last.end)).at(-1).min;
+  return nowMin()>end ? addDays(todayIso(),1) : todayIso();
+}
+function dayLabel(iso, short){
+  const t=todayIso();
+  if(iso===t) return "Aujourd'hui";
+  if(iso===addDays(t,1)) return "Demain";
+  const [y,m,d]=iso.split("-").map(Number);
+  return new Date(y,m-1,d).toLocaleDateString("fr-FR", short?{weekday:"short"}:{weekday:"long",day:"numeric",month:"long"});
+}
+async function fetchWx(points, date){
+  const lat=points.map(p=>p.lat.toFixed(4)).join(","), lon=points.map(p=>p.lon.toFixed(4)).join(",");
+  const vars="temperature_2m,apparent_temperature,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m,visibility";
+  const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=${vars}&timezone=auto&start_date=${date}&end_date=${addDays(date,1)}`);
+  if(!r.ok) throw new Error(r.status);
+  let d=await r.json(); if(!Array.isArray(d)) d=[d];
+  return d.map(x=>x.hourly);
+}
+function saveWx(){
+  const t=todayIso();
+  for(const k in wx.cache) if(k.split("|")[1]<t) delete wx.cache[k];
+  try{ localStorage.setItem(WX_KEY, JSON.stringify(wx.cache)); }catch(e){}
+}
+function getWx(route, date, force){
+  const k=keyOf(route.points)+"|"+date, c=wx.cache[k];
+  if(force){ delete wx.err[k]; if(c) c.at=0; }
+  const fresh = c && Date.now()-c.at<WX_TTL, recentErr = wx.err[k] && Date.now()-wx.err[k]<WX_RETRY;
+  if(!fresh && !wx.pending[k] && !recentErr){
+    wx.pending[k]=true;
+    fetchWx(route.points,date)
+      .then(h=>{ wx.cache[k]={at:Date.now(), hourly:h}; delete wx.err[k]; saveWx(); })
+      .catch(()=>{ wx.err[k]=Date.now(); })
+      .finally(()=>{ delete wx.pending[k]; if(state.view!=="edit") render(); });
+  }
+  return {data:c||null, loading:!!wx.pending[k], error:!!wx.err[k]};
+}
+
+const SKY = {0:"Ciel dégagé",1:"Peu nuageux",2:"Éclaircies",3:"Couvert",45:"Brouillard",48:"Brouillard givrant",
+  51:"Bruine légère",53:"Bruine",55:"Bruine forte",56:"Bruine verglaçante",57:"Bruine verglaçante forte",
+  61:"Pluie faible",63:"Pluie",65:"Pluie forte",66:"Pluie verglaçante",67:"Pluie verglaçante forte",
+  71:"Neige faible",73:"Neige",75:"Neige forte",77:"Grains de neige",80:"Averses faibles",81:"Averses",82:"Averses violentes",
+  85:"Averses de neige",86:"Fortes averses de neige",95:"Orage",96:"Orage avec grêle",99:"Orage avec forte grêle"};
+function skyRank(c){
+  if(c>=95) return 10; if([56,57,66,67].includes(c)) return 9; if((c>=71&&c<=77)||c===85||c===86) return 8;
+  if(c===48) return 7; if(c===82) return 6.5; if(c>=80) return 6; if(c===65) return 5.5; if(c>=61) return 5;
+  if(c>=51) return 4; if(c===45) return 3; return c/3; // 0 à 3 : nébulosité
+}
+const lo = a => a.length?Math.min(...a):NaN, hi = a => a.length?Math.max(...a):NaN;
+function sampleTrip(route, reverse, slot, hourly){
+  const n=route.points.length, a=timeline(route,reverse,toMin(slot.start)), b=timeline(route,reverse,toMin(slot.end));
+  const per=a.map((s,j)=>{
+    const h=hourly[reverse?n-1-j:j]; if(!h) return null;
+    const rows=[]; for(let i=Math.max(0,Math.floor(s.min/60)); i<=Math.min(47,Math.floor(b[j].min/60)); i++) rows.push(i);
+    const pick=k=>rows.map(i=>h[k]?.[i]).filter(v=>v!=null);
+    const codes=pick("weather_code");
+    return {pt:s.pt, m1:s.min, m2:b[j].min,
+      tMin:lo(pick("temperature_2m")), tMax:hi(pick("temperature_2m")), feel:lo(pick("apparent_temperature")),
+      rain:hi(pick("precipitation")), prob:hi(pick("precipitation_probability")),
+      wind:hi(pick("wind_speed_10m")), gust:hi(pick("wind_gusts_10m")), vis:lo(pick("visibility")),
+      code:codes.length?codes.reduce((w,c)=>skyRank(c)>skyRank(w)?c:w):NaN};
+  }).filter(Boolean);
+  const all=k=>per.map(p=>p[k]).filter(Number.isFinite);
+  const worst=per.reduce((w,p)=>!w||skyRank(p.code)>skyRank(w.code)?p:w,null);
+  return {per, end:b.at(-1).min,
+    agg:{tMin:lo(all("tMin")), tMax:hi(all("tMax")), feel:lo(all("feel")), rain:hi(all("rain")), prob:hi(all("prob")),
+         wind:hi(all("wind")), gust:hi(all("gust")), vis:lo(all("vis")), code:worst?.code, codeAt:worst?.pt?.name}};
+}
+const num = (v,suf="") => Number.isFinite(v) ? Math.round(v)+suf : "—";
+const mm = v => !Number.isFinite(v) ? "—" : (v<0.05?"0":v.toFixed(1).replace(".",","))+" mm";
+const visKm = v => !Number.isFinite(v) ? "—" : v>=10000 ? "10+ km" : (v/1000).toFixed(v<1000?1:0).replace(".",",")+" km";
+function flagsOf(g){
+  // points d'attention bruts ; le verdict go / no-go arrive à l'étape suivante
+  const f=[];
+  if(g.code>=95) f.push("Orage prévu");
+  if([56,57,66,67].includes(g.code)) f.push("Pluie ou bruine verglaçante");
+  if((g.code>=71&&g.code<=77)||g.code===85||g.code===86) f.push("Neige prévue");
+  if(Number.isFinite(g.tMin)&&g.tMin<=3) f.push("Température basse : risque de gel au sol");
+  if(Number.isFinite(g.vis)&&g.vis<1000) f.push("Visibilité réduite (brouillard)");
+  if(Number.isFinite(g.gust)&&g.gust>=60) f.push(`Rafales fortes jusqu'à ${num(g.gust)} km/h`);
+  return f;
+}
+function wxBlock(label, route, reverse, slot, data, date, detailed){
+  const s=sampleTrip(route,reverse,slot,data.hourly), g=s.agg;
+  const past = date===todayIso() && nowMin()>s.end;
+  const cells=`<div class="wx-grid">
+    <div class="wx-cell"><span>Temp.</span><b>${num(g.tMin,"°")}${Math.round(g.tMax)!==Math.round(g.tMin)&&Number.isFinite(g.tMax)?" / "+num(g.tMax,"°"):""}</b><small>ressenti ${num(g.feel,"°")}</small></div>
+    <div class="wx-cell"><span>Pluie</span><b>${mm(g.rain)}</b><small>${num(g.prob," %")} risque</small></div>
+    <div class="wx-cell"><span>Rafales</span><b>${num(g.gust)}</b><small>vent ${num(g.wind)} km/h</small></div>
+    <div class="wx-cell"><span>Visib.</span><b>${visKm(g.vis)}</b><small>min.</small></div></div>`;
+  const flags=flagsOf(g).map(t=>`<div class="flag">${esc(t)}</div>`).join("");
+  const table = detailed ? `<div class="pts"><table><thead><tr><th>Passage</th><th>Temp.</th><th>Pluie</th><th>Rafales</th><th>Ciel</th></tr></thead><tbody>
+    ${s.per.map(p=>`<tr><td>${esc(p.pt.name)}<small>${fmtSlot(p.m1,p.m2)}</small></td><td>${num(p.tMin,"°")}<small>${num(p.feel,"°")} ress.</small></td><td>${mm(p.rain)}<small>${num(p.prob," %")}</small></td><td>${num(p.gust)}<small>km/h</small></td><td>${esc(SKY[p.code]??"—")}</td></tr>`).join("")}
+    </tbody></table></div>` : "";
+  return `<div class="wx${past?" past":""}">
+    <div class="wx-head"><h3>${label} · ${fmtSlot(toMin(slot.start),toMin(slot.end))}</h3>
+      <span class="wx-sky">${past?"Trajet passé · ":""}${esc(SKY[g.code]??"—")}</span></div>
+    ${cells}${flags}${table}</div>`;
+}
+
+/* ---------- vue liste ---------- */
+function slotLine(label, route, reverse, slot){
+  const s=toMin(slot.start), e=toMin(slot.end);
+  if(!ready(route)) return `<span><b>${label}</b> départ ${fmtSlot(s,e)}</span>`;
+  const a=timeline(route,reverse,s), b=timeline(route,reverse,e);
+  return `<span><b>${label}</b> ${fmtSlot(s,e)} → arrivée ${fmtSlot(a.at(-1).min,b.at(-1).min)}</span>`;
+}
+function heroWx(route){
+  if(!ready(route)) return "";
+  const day=defaultDay(route), w=getWx(route,day);
+  let body;
+  if(w.data) body=wxBlock("Aller",route,false,route.aller,w.data,day,false)+(route.retour.on?wxBlock("Retour",route,true,route.retour,w.data,day,false):"");
+  else body=`<p class="${w.error?"err":"hint"}">${w.error?"Météo indisponible. Vérifie ta connexion.":"Chargement de la météo…"}</p>`;
+  return `<div class="wx"><div class="eyebrow">Météo · ${esc(dayLabel(day))}</div>${body}</div>`;
+}
+function cardHtml(route){
+  const t=ready(route)?totals(route):null;
+  const path = route.points.length ? route.points.map(x=>x.name).join(" → ") : "Ajoute tes adresses";
+  return `<button class="card${route.isDefault?" hero":""}" data-open="${esc(route.id)}">
+    ${sketch(route.points)}
+    <div class="meta">
+      <div class="name">${esc(route.name||"Sans nom")}</div>
+      <div class="path">${esc(path)}</div>
+      <div class="legs">
+        ${slotLine("Aller",route,false,route.aller)}
+        ${route.retour.on?slotLine("Retour",route,true,route.retour):""}
+      </div>
+      <div class="chips">
+        ${route.isDefault?'<span class="chip accent">Par défaut</span>':''}
+        ${t?`<span class="chip">${fmtKm(t.km)}</span><span class="chip">${isEstimate(route)?"≈ ":""}${fmtDur(t.min)}</span>`:'<span class="chip todo">À compléter</span>'}
+      </div>
+    </div>
+    ${route.isDefault?heroWx(route):""}</button>`;
+}
+function renderList(){
+  const def=state.routes.filter(x=>x.isDefault), others=state.routes.filter(x=>!x.isDefault);
+  app.innerHTML = `
+    <header class="top"><h1 class="brand">Roule <span>ou pas</span></h1></header>
+    <div class="stack">
+      ${def.length?`<div class="eyebrow">Trajet par défaut</div><div class="list">${def.map(cardHtml).join("")}</div>`:""}
+      <div class="eyebrow">Autres itinéraires · ${others.length}</div>
+      ${others.length?`<div class="list">${others.map(cardHtml).join("")}</div>`:`<p class="hint">Balades du week-end, road trips : crée-les avec le bouton en bas.</p>`}
+    </div>
+    <button class="btn btn-primary fab" id="new">+ Nouvel itinéraire</button>`;
+  app.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{
+    const r=state.routes.find(x=>x.id===b.dataset.open);
+    ready(r) ? openDetail(r.id) : openEditor(r.id);
+  });
+  document.getElementById("new").onclick=()=>openEditor(null);
+}
+
+/* ---------- vue trajet (météo détaillée) ---------- */
+function openDetail(id){
+  const r=state.routes.find(x=>x.id===id);
+  state.detailId=id; state.day=defaultDay(r); state.view="detail";
+  render(); window.scrollTo(0,0);
+}
+function renderDetail(force){
+  const r=state.routes.find(x=>x.id===state.detailId);
+  if(!r){ state.view="list"; return renderList(); }
+  const t=todayIso(), days=[...Array(7)].map((_,i)=>addDays(t,i));
+  const w=getWx(r,state.day,force);
+  let body;
+  if(w.data){
+    const at=new Date(w.data.at);
+    body = wxBlock("Aller",r,false,r.aller,w.data,state.day,true)
+      + (r.retour.on? wxBlock("Retour",r,true,r.retour,w.data,state.day,true) : "")
+      + `<p class="hint">Prévisions Open-Meteo${w.data.at?` de ${fmtTime(at.getHours()*60+at.getMinutes())}`:""}${w.loading?" · mise à jour…":""}${w.error?" · mise à jour impossible":""}. Valeurs les plus défavorables sur ta plage horaire, pluie en mm par heure.</p>`;
+  } else body = `<p class="${w.error?"err":"hint"}">${w.error?"Météo indisponible. Vérifie ta connexion puis touche Actualiser.":"Chargement de la météo…"}</p>`;
+  const tt=totals(r);
+  app.innerHTML = `
+    <header class="top">
+      <button class="icon-btn" id="back" aria-label="Retour">←</button>
+      <div class="eyebrow">${fmtKm(tt.km)} · ${isEstimate(r)?"≈ ":""}${fmtDur(tt.min)}</div>
+      <button class="icon-btn" id="refresh" aria-label="Actualiser la météo">↻</button>
+    </header>
+    <div class="stack">
+      <div><h2>${esc(r.name)}</h2><p class="hint">${esc(r.points.map(p=>p.name).join(" → "))}</p></div>
+      <div class="days" role="group" aria-label="Jour du trajet">
+        ${days.map((d,i)=>`<button class="day" data-day="${d}" aria-pressed="${d===state.day}">${i<2?dayLabel(d):dayLabel(d,true)}<small>${Number(d.slice(8))}/${Number(d.slice(5,7))}</small></button>`).join("")}
+      </div>
+      <div class="panel">${body}</div>
+      <div class="bar"><button class="btn btn-ghost" id="edit">Modifier l'itinéraire</button></div>
+    </div>`;
+  document.getElementById("back").onclick=()=>{state.view="list";render();};
+  document.getElementById("refresh").onclick=()=>renderDetail(true);
+  document.getElementById("edit").onclick=()=>openEditor(r.id);
+  app.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>{state.day=b.dataset.day;render();});
+}
+
+/* ---------- vue éditeur ---------- */
+function openEditor(id){
+  const src = id ? state.routes.find(r=>r.id===id) : null;
+  state.draft = src ? JSON.parse(JSON.stringify(src)) :
+    {id:"r"+Date.now().toString(36), name:"", isDefault:false, points:[],
+     aller:{start:"09:00",end:"09:00"}, retour:{on:false,start:"17:00",end:"17:00"}, legs:null, legsKey:"", legsSource:""};
+  state.isNew=!src; state.confirmDelete=false; state.routingErr=false; state.view="edit";
+  render(); window.scrollTo(0,0);
+}
+function searchLabel(d){
+  const n=d.points.length;
+  if(d.isDefault && n===0) return "Adresse de la maison";
+  if(d.isDefault && n===1) return "Adresse du boulot";
+  return n? "Ajouter une étape" : "Point de départ";
+}
+function slotPanel(d, which){
+  const slot=d[which], reverse=which==="retour", ok=d.points.length>=2;
+  const s=toMin(slot.start), e=toMin(slot.end);
+  let out="";
+  if(ok){
+    const a=timeline(d,reverse,s), b=timeline(d,reverse,e);
+    out=`<div class="slot-out">Arrivée à <b>${esc(a.at(-1).pt.name)}</b> entre <b>${fmtSlot(a.at(-1).min,b.at(-1).min)}</b></div>`;
+  }
+  return `<div class="slot">
+    <div class="row2">
+      <div class="field"><label for="${which}-s">Départ au plus tôt</label><input type="time" id="${which}-s" value="${esc(slot.start)}"></div>
+      <div class="field"><label for="${which}-e">Départ au plus tard</label><input type="time" id="${which}-e" value="${esc(slot.end)}"></div>
+    </div>${out}</div>`;
+}
+function renderEditor(){
+  const d=state.draft, n=d.points.length, ok=n>=2;
+  const a1=ok?timeline(d,false,toMin(d.aller.start)):null, a2=ok?timeline(d,false,toMin(d.aller.end)):null;
+  const steps = d.points.map((pt,i)=>{
+    const end=i===0||i===n-1;
+    const sub = ok ? (i===0 ? `départ ${fmtSlot(a1[0].min,a2[0].min)}` : `${fmtKm(a1[i].km)} · passage ${fmtSlot(a1[i].min,a2[i].min)}`) : "";
+    return `<li class="step${end?" end":""}">
+      <div class="dot">${i===0?"D":i===n-1?"A":i}</div>
+      <div class="txt"><div class="city">${esc(pt.name)}</div>
+        <div class="sub">${esc(pt.ctx||"")}${sub?" · "+sub:""}</div></div>
+      <div class="acts">
+        <button class="icon-btn" data-up="${i}" aria-label="Monter" ${i===0?"disabled":""}>↑</button>
+        <button class="icon-btn" data-down="${i}" aria-label="Descendre" ${i===n-1?"disabled":""}>↓</button>
+        <button class="icon-btn" data-del="${i}" aria-label="Retirer">✕</button>
+      </div></li>`;
+  }).join("");
+  const t=ok?totals(d):null, est=ok&&isEstimate(d);
+  app.innerHTML = `
+    <header class="top">
+      <button class="icon-btn" id="back" aria-label="Retour">←</button>
+      <div class="eyebrow">${state.isNew?"Nouvel itinéraire":"Modifier l'itinéraire"}</div>
+      <span style="width:40px"></span>
+    </header>
+    <div class="stack">
+      <div class="field"><label for="name">Nom</label>
+        <input type="text" id="name" placeholder="Ex. : Sortie du dimanche" value="${esc(d.name)}" maxlength="60"></div>
+
+      <div class="panel">
+        <h2>Étapes de l'aller</h2>
+        ${n? `<ol class="steps">${steps}</ol>` : `<p class="hint">${d.isDefault?"Commence par l'adresse de ta maison, puis celle du boulot.":"Ajoute au moins un départ et une arrivée."}</p>`}
+        <div class="field"><label for="q">${searchLabel(d)}</label>
+          <input type="search" id="q" placeholder="Ex. : 12 rue Victor Hugo, Amiens" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"></div>
+        <button class="btn btn-ghost" id="gps" type="button">Ma position actuelle</button>
+        <div id="res"></div>
+        ${ok?`<div class="summary">
+          <div><b>${fmtKm(t.km)}</b><span>Distance</span></div>
+          <div><b>${est?"≈ ":""}${fmtDur(t.min)}</b><span>Durée par la route</span></div></div>
+          ${state.routing?`<p class="hint">Calcul de l'itinéraire routier…</p>`:
+            state.routingErr?`<p class="err">Calcul routier indisponible : durée estimée. Rouvre l'itinéraire avec du réseau pour la corriger.</p>`:
+            `<p class="hint">Durées calculées par la route, sans bouchons ni pauses.</p>`}`:""}
+      </div>
+
+      <div class="panel">
+        <h3>Aller</h3>
+        ${slotPanel(d,"aller")}
+        <div class="panel-head">
+          <h3>Retour</h3>
+          <label class="switch"><input type="checkbox" id="ret" ${d.retour.on?"checked":""}> Même trajet en sens inverse</label>
+        </div>
+        ${d.retour.on?slotPanel(d,"retour"):""}
+      </div>
+
+      <label class="switch"><input type="checkbox" id="def" ${d.isDefault?"checked":""}> Trajet par défaut (affiché en premier)</label>
+
+      <div class="bar">
+        <button class="btn btn-primary" id="save">Enregistrer</button>
+        ${state.isNew?"":`<button class="btn btn-danger" id="del">Supprimer</button>`}
+      </div>
+      ${state.confirmDelete?`<div class="confirm"><span>Supprimer « ${esc(d.name||"Sans nom")} » ? C'est définitif.</span>
+        <div class="bar"><button class="btn btn-danger" id="delyes">Oui, supprimer</button><button class="btn btn-ghost" id="delno">Annuler</button></div></div>`:""}
+    </div>`;
+
+  const $=id=>document.getElementById(id);
+  $("back").onclick=()=>{const back=!state.isNew&&ready(d)&&state.routes.some(r=>r.id===d.id);state.draft=null;back?openDetail(d.id):(state.view="list",render());};
+  $("name").oninput=e=>d.name=e.target.value;
+  ["aller","retour"].forEach(w=>{
+    const s=$(w+"-s"), e=$(w+"-e"); if(!s) return;
+    s.onchange=()=>{d[w].start=s.value||d[w].start; if(toMin(d[w].end)<toMin(d[w].start)) d[w].end=d[w].start; render();};
+    e.onchange=()=>{d[w].end=e.value||d[w].end; if(toMin(d[w].end)<toMin(d[w].start)) d[w].start=d[w].end; render();};
+  });
+  $("ret").onchange=e=>{d.retour.on=e.target.checked;render();};
+  $("def").onchange=e=>{d.isDefault=e.target.checked;};
+  app.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>{const i=+b.dataset.up;[d.points[i-1],d.points[i]]=[d.points[i],d.points[i-1]];render();});
+  app.querySelectorAll("[data-down]").forEach(b=>b.onclick=()=>{const i=+b.dataset.down;[d.points[i+1],d.points[i]]=[d.points[i],d.points[i+1]];render();});
+  app.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{d.points.splice(+b.dataset.del,1);render();});
+  $("save").onclick=saveDraft;
+  if($("del")) $("del").onclick=()=>{state.confirmDelete=true;render();};
+  if($("delyes")) $("delyes").onclick=()=>{state.routes=state.routes.filter(r=>r.id!==d.id);save();state.draft=null;state.view="list";render();toast("Itinéraire supprimé");};
+  if($("delno")) $("delno").onclick=()=>{state.confirmDelete=false;render();};
+
+  let timer; const q=$("q");
+  q.oninput=()=>{clearTimeout(timer);const v=q.value.trim();if(v.length<3){$("res").innerHTML="";return;}timer=setTimeout(()=>search(v),250);};
+  $("gps").onclick=useMyPosition;
+  ensureRouting();
+}
+
+/* ---------- recherche d'adresses et de villes ---------- */
+const featToPlace = f => { const p=f.properties; return {
+  name: p.type==="municipality" ? p.city : (p.name||p.label),
+  ctx: [p.postcode, p.city].filter(Boolean).join(" "),
+  lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0]}; };
+async function completeFR(text){
+  // Géoplateforme IGN : autocomplétion d'adresses réelles en France, dès les premières lettres
+  const r=await fetch("https://data.geopf.fr/geocodage/completion/?type=StreetAddress,PositionOfInterest&maximumResponses=6&text="+encodeURIComponent(text));
+  if(!r.ok) throw new Error(r.status);
+  const d=await r.json();
+  return (d.results||[]).filter(x=>Number.isFinite(x.x)&&Number.isFinite(x.y)).map(x=>{
+    const full=x.fulltext||[x.street,x.zipcode,x.city].filter(Boolean).join(" ");
+    const cut=full.indexOf(",");
+    return {name: cut>0?full.slice(0,cut):full, ctx: cut>0?full.slice(cut+1).trim():[x.zipcode,x.city].filter(Boolean).join(" "), lat:x.y, lon:x.x};
+  });
+}
+async function searchFR(text){
+  // repli : recherche plein texte (ex-API Adresse), si l'autocomplétion ne répond pas
+  try{ const c=await completeFR(text); if(c.length) return c; }catch(e){}
+  const r=await fetch("https://data.geopf.fr/geocodage/search?index=address&limit=6&q="+encodeURIComponent(text));
+  if(!r.ok) throw new Error(r.status);
+  const d=await r.json();
+  return (d.features||[]).map(featToPlace);
+}
+async function reverseFR(lat, lon){
+  const r=await fetch(`https://data.geopf.fr/geocodage/reverse?index=address&limit=1&lat=${lat}&lon=${lon}`);
+  if(!r.ok) throw new Error(r.status);
+  const f=(await r.json()).features?.[0];
+  return f ? featToPlace(f) : {name:"Ma position", ctx:"", lat, lon};
+}
+function useMyPosition(){
+  const res=document.getElementById("res");
+  if(!navigator.geolocation){ res.innerHTML=`<p class="err">Ton téléphone ne donne pas accès à la position ici.</p>`; return; }
+  res.innerHTML=`<p class="hint">Localisation…</p>`;
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const {latitude:lat, longitude:lon}=pos.coords;
+    let place; try{ place=await reverseFR(lat,lon); }catch(e){ place={name:"Ma position", ctx:"", lat, lon}; }
+    if(!state.draft) return;
+    state.draft.points.push(place); render();
+  }, err=>{
+    res.innerHTML=`<p class="err">${err.code===1?"Position refusée. Autorise la localisation pour Safari dans Réglages › Confidentialité › Service de localisation.":"Position introuvable. Tape l'adresse à la place."}</p>`;
+  }, {enableHighAccuracy:true, timeout:10000});
+}
+async function searchWorld(text){
+  // Open-Meteo : villes du monde entier (utile pour les road trips hors de France)
+  const r=await fetch("https://geocoding-api.open-meteo.com/v1/search?count=5&language=fr&format=json&name="+encodeURIComponent(text));
+  if(!r.ok) throw new Error(r.status);
+  const d=await r.json();
+  return (d.results||[]).filter(x=>x.country_code!=="FR").map(x=>({name:x.name, ctx:[x.admin1,x.country].filter(Boolean).join(", "), lat:x.latitude, lon:x.longitude}));
+}
+let searchSeq=0;
+async function search(text){
+  const res=document.getElementById("res"); if(!res) return; const seq=++searchSeq;
+  res.innerHTML=`<p class="hint">Recherche…</p>`;
+  const [fr,world]=await Promise.allSettled([searchFR(text),searchWorld(text)]);
+  if(!document.getElementById("res") || seq!==searchSeq) return;
+  const list=[...(fr.value||[]),...(world.value||[])].slice(0,8);
+  if(fr.status==="rejected" && world.status==="rejected"){res.innerHTML=`<p class="err">Recherche impossible. Vérifie ta connexion internet puis réessaie.</p>`;return;}
+  if(!list.length){res.innerHTML=`<p class="hint">Aucun lieu trouvé pour « ${esc(text)} ». Vérifie l'orthographe ou ajoute la ville.</p>`;return;}
+  res.innerHTML=`<div class="results">${list.map((x,i)=>`<button data-pick="${i}">${esc(x.name)}<small>${esc(x.ctx)}</small></button>`).join("")}</div>`;
+  res.querySelectorAll("[data-pick]").forEach(b=>b.onclick=()=>{
+    state.draft.points.push(list[+b.dataset.pick]);
+    render(); const nq=document.getElementById("q"); if(nq) nq.focus();
+  });
+}
+
+function saveDraft(){
+  const d=state.draft;
+  if(d.points.length<2){toast("Ajoute au moins un départ et une arrivée");return;}
+  if(!d.name.trim()) d.name=d.points[0].name+(d.retour.on?" ↔ ":" → ")+d.points.at(-1).name;
+  if(d.isDefault) state.routes.forEach(r=>{ if(r.id!==d.id) r.isDefault=false; });
+  const i=state.routes.findIndex(r=>r.id===d.id);
+  if(i>=0) state.routes[i]=d; else state.routes.push(d);
+  if(save()){state.draft=null;openDetail(d.id);toast("Itinéraire enregistré");}
+}
+
+/* ---------- divers ---------- */
+let tt; function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,2200);}
+const app=document.getElementById("app");
+function render(){ state.view==="edit"?renderEditor():state.view==="detail"?renderDetail():renderList(); }
+render();
+</script>
+</body>
+</html>
