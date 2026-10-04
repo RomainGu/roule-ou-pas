@@ -301,13 +301,15 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.04-5";
+const APP_VERSION="2026.10.04-6";
+// compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
+const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
 async function checkUpdate(){
   try{
     const r=await fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"});
     const m=(await r.text()).match(/APP_VERSION="([^"]+)"/);
-    if(m && m[1]!==APP_VERSION && newVersion!==m[1]){ newVersion=m[1]; if(state.view!=="edit" && state.view!=="gear-edit") render(); }
+    if(m && cmpVer(m[1],APP_VERSION)>0 && newVersion!==m[1]){ newVersion=m[1]; if(state.view!=="edit" && state.view!=="gear-edit") render(); }
   }catch(e){}
 }
 function updateBanner(){
