@@ -208,6 +208,17 @@ a.btn{text-decoration:none;color:var(--ink)}
 .mode input[type=text],.mode input[type=number]{padding:9px !important;font-size:15px !important}
 .mode label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
 .mode-head{display:grid;grid-template-columns:minmax(0,1fr) 64px 64px auto auto;gap:6px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.chiprow{display:flex;flex-wrap:wrap;gap:8px}
+.pick{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 14px;font-weight:600;cursor:pointer}
+.pick[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.loopcard{display:flex;flex-direction:column;gap:10px}
+.loopcard .head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.loopcard .head > div{min-width:0}
+.loopcard .via{font-size:14px;color:var(--muted)}
+.best{font:700 13px/1 var(--display);text-transform:uppercase;letter-spacing:.04em;color:var(--accent-ink);background:var(--accent);border-radius:6px;padding:5px 8px;align-self:flex-start}
+.progress{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.progress span{display:block;height:100%;background:var(--accent);transition:width .3s}
+.fab-row .btn{padding:13px 14px;font-size:15px}
 .seed{border:2px solid var(--accent);background:var(--surface);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
 @media (prefers-reduced-motion:no-preference){.card{transition:transform .12s}.card:active{transform:scale(.985)}}
 </style>
@@ -243,6 +254,7 @@ function migrateDay(d){
   d.retour={on:false,start:d.aller.start,end:d.aller.end};
   if(!Array.isArray(d.points)) d.points=[];
   if(typeof d.note!=="string") d.note="";
+  d.moto=!!d.moto;
   if(!("legs" in d)){ d.legs=null; d.legsKey=""; d.legsSource=""; }
   return d;
 }
@@ -269,7 +281,7 @@ function save(){
 const state = { rules:{}, pendingMaps:[], tab:"trajets", gear:[], routes: load(), view:"list", draft:null, confirmDelete:false, routing:false, routingErr:false };
 save();
 try{ const g=JSON.parse(localStorage.getItem("rouleoupas.gear.v1")); if(Array.isArray(g)) state.gear=g; }catch(e){}
-const editing = () => ["edit","gear-edit","voyage-edit"].includes(state.view);
+const editing = () => ["edit","gear-edit","voyage-edit"].includes(state.view) || (state.view==="loop" && document.activeElement && document.activeElement.id==="q");
 
 /* ---------- temps ---------- */
 const toMin = s => { const [h,m]=(s||"00:00").split(":").map(Number); return h*60+m; };
@@ -282,6 +294,8 @@ const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">
 /* ---------- calcul routier ---------- */
 // clé d'un itinéraire : coordonnées (+ durée de ferry quand une étape s'atteint en bateau)
 const keyOf = pts => pts.map(p=>p.lat.toFixed(5)+","+p.lon.toFixed(5)+(p.ferry>0?"f"+p.ferry:"")).join(";");
+// clé de calcul d'un trajet : ses points + le mode « routes moto » (sans autoroute) quand il est actif
+const rkey = r => keyOf(r.points)+(r.moto?"|moto":"");
 function haversine(a,b){
   const R=6371, t=x=>x*Math.PI/180, dLat=t(b.lat-a.lat), dLon=t(b.lon-a.lon);
   const h=Math.sin(dLat/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLon/2)**2;
@@ -298,11 +312,29 @@ async function osrm(pts){
   const d=await r.json(); if(d.code!=="Ok"||!d.routes?.length) throw new Error(d.code);
   return {legs:d.routes[0].legs.map(l=>({km:l.distance/1000, min:l.duration/60})), geom:thin(d.routes[0].geometry.coordinates)};
 }
+// polyline Valhalla (précision 6) → [[lon,lat], …]
+function decode6(str){
+  let i=0, lat=0, lon=0; const out=[];
+  const next=()=>{ let b, shift=0, res=0; do{ b=str.charCodeAt(i++)-63; res|=(b&0x1f)<<shift; shift+=5; }while(b>=0x20); return (res&1)?~(res>>1):(res>>1); };
+  while(i<str.length){ lat+=next(); lon+=next(); out.push([lon/1e6, lat/1e6]); }
+  return out;
+}
+// Valhalla, profil moto : évite autoroutes et péages, préfère les routes secondaires
+async function valhalla(pts){
+  const q={locations:pts.map(p=>({lat:+p.lat.toFixed(6), lon:+p.lon.toFixed(6), type:"break"})), costing:"motorcycle",
+    costing_options:{motorcycle:{use_highways:0, use_tolls:0.2, use_trails:0}}, directions_type:"none", units:"kilometers"};
+  const r=await fetch("https://valhalla1.openstreetmap.de/route?json="+encodeURIComponent(JSON.stringify(q)));
+  if(!r.ok) throw new Error(r.status);
+  const d=await r.json(); if(!d.trip || d.trip.status!==0) throw new Error("valhalla");
+  const coords=[]; d.trip.legs.forEach(l=>coords.push(...decode6(l.shape)));
+  return {legs:d.trip.legs.map(l=>({km:l.summary.length, min:l.summary.time/60})), geom:thin(coords)};
+}
 // la route est calculée par morceaux ; une traversée en ferry est une ligne droite de la durée saisie
-async function fetchLegs(pts){
+async function fetchLegs(pts, moto){
   const legs=new Array(Math.max(0,pts.length-1)), geom=[];
-  let from=0;
-  const road=async(a,b)=>{ if(b<=a) return; const r=await osrm(pts.slice(a,b+1)); r.legs.forEach((l,i)=>legs[a+i]=l); geom.push(...r.geom); };
+  let from=0, engine=moto?"valhalla":"osrm";
+  const calc=async seg=>{ if(engine==="valhalla"){ try{ return await valhalla(seg); }catch(e){ engine="osrm"; } } return osrm(seg); };
+  const road=async(a,b)=>{ if(b<=a) return; const r=await calc(pts.slice(a,b+1)); r.legs.forEach((l,i)=>legs[a+i]=l); geom.push(...r.geom); };
   for(let i=1;i<pts.length;i++){
     if(pts[i].ferry>0){
       await road(from,i-1);
@@ -312,11 +344,11 @@ async function fetchLegs(pts){
     }
   }
   await road(from,pts.length-1);
-  return {legs, geom};
+  return {legs, geom, engine};
 }
 // tronçons pour un ordre de points ; le retour réutilise les tronçons de l'aller, inversés
 function legsFor(route, reverse){
-  let legs=route.legs && route.legsKey===keyOf(route.points) ? route.legs : estimateLegs(route.points);
+  let legs=route.legs && route.legsKey===rkey(route) ? route.legs : estimateLegs(route.points);
   return reverse ? legs.slice().reverse() : legs;
 }
 // heures de passage ; une pause est ajoutée à chaque tranche de route prévue dans les réglages
@@ -335,18 +367,18 @@ function timeline(route, reverse, startMin){
   return out;
 }
 const totals = route => { const l=legsFor(route,false); return {km:l.reduce((s,x)=>s+x.km,0), min:l.reduce((s,x)=>s+x.min,0)}; };
-const isEstimate = route => !(route.legs && route.legsKey===keyOf(route.points) && route.legsSource==="osrm");
+const isEstimate = route => !(route.legs && route.legsKey===rkey(route) && (route.legsSource==="osrm"||route.legsSource==="valhalla"));
 
 async function ensureRouting(){
   const d=state.draft; if(!d || d.points.length<2) return;
-  const k=keyOf(d.points);
-  if(d.legsKey===k && d.legsSource==="osrm" && d.geomKey===k) return;
+  const k=rkey(d);
+  if(d.legsKey===k && !isEstimate(d) && d.geomKey===k) return;
   if(state.routing===k) return;
   state.routing=k; state.routingErr=false;
   try{
-    const res=await fetchLegs(d.points);
-    if(state.draft!==d || keyOf(d.points)!==k) return;
-    d.legs=res.legs; d.geom=res.geom; d.geomKey=k; d.legsKey=k; d.legsSource="osrm";
+    const res=await fetchLegs(d.points, d.moto);
+    if(state.draft!==d || rkey(d)!==k) return;
+    d.legs=res.legs; d.geom=res.geom; d.geomKey=k; d.legsKey=k; d.legsSource=res.engine;
   }catch(e){
     if(state.draft===d){ d.legs=estimateLegs(d.points); d.legsKey=k; d.legsSource="estimate"; state.routingErr=true; }
   }finally{ if(state.routing===k) state.routing=false; if(state.view==="edit") render(); }
@@ -365,11 +397,11 @@ function thin(coords){
 // complète le tracé des itinéraires déjà enregistrés qui n'en ont pas encore
 const geomPending={};
 async function ensureGeom(route){
-  if(!ready(route) || (route.geom && route.geomKey===keyOf(route.points)) || geomPending[route.id]) return;
+  if(!ready(route) || (route.geom && route.geomKey===rkey(route)) || geomPending[route.id]) return;
   geomPending[route.id]=true;
   try{
-    const res=await fetchLegs(route.points);
-    route.legs=res.legs; route.geom=res.geom; route.geomKey=route.legsKey=keyOf(route.points); route.legsSource="osrm";
+    const res=await fetchLegs(route.points, route.moto);
+    route.legs=res.legs; route.geom=res.geom; route.geomKey=route.legsKey=rkey(route); route.legsSource=res.engine;
     save(); if(!editing()) render();
   }catch(e){} finally{ setTimeout(()=>delete geomPending[route.id], 60000); }
 }
@@ -396,7 +428,7 @@ function mountMaps(){
       {maxZoom:19, className:isDark()?"tiles-dark":"", attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
     const css=getComputedStyle(document.documentElement), tok=(n,f)=>css.getPropertyValue(n).trim()||f;
     const accent=tok("--accent","#f2b705"), ink=tok("--ink","#1c2329"), lvlColor=[tok("--ok","#2f8f5b"),tok("--warn","#d9822b"),tok("--danger","#b8352a")];
-    const hasGeom = route.geom && route.geomKey===keyOf(route.points);
+    const hasGeom = route.geom && route.geomKey===rkey(route);
     const line = hasGeom ? route.geom : route.points.map(p=>[p.lat,p.lon]);
     L.polyline(line,{color:ink,weight:7,opacity:.35}).addTo(map);
     L.polyline(line,{color:accent,weight:4,opacity:1,dashArray:hasGeom?null:"6 8"}).addTo(map);
@@ -418,7 +450,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.06-3";
+const APP_VERSION="2026.10.06-4";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -475,7 +507,7 @@ function routeSamples(route){
   const cum=[0]; legs.forEach(l=>cum.push(cum.at(-1)+l.km)); const total=cum.at(-1);
   const out=pts.map((p,i)=>({name:p.name, lat:p.lat, lon:p.lon, km:cum[i], stop:true}));
   const g=route.geom;
-  if(g && g.length>1 && route.geomKey===keyOf(pts) && total>0){
+  if(g && g.length>1 && route.geomKey===rkey(route) && total>0){
     const gc=[0]; for(let i=1;i<g.length;i++) gc.push(gc[i-1]+haversine({lat:g[i-1][0],lon:g[i-1][1]},{lat:g[i][0],lon:g[i][1]}));
     const gTot=gc.at(-1)||1, step=Math.max(20, total/38);
     let j=0;
@@ -875,7 +907,7 @@ function voyageComposite(v){
   const pts=[], geom=[]; let allGeom=true;
   v.days.filter(ready).forEach(d=>{
     d.points.forEach(p=>{ const l=pts.at(-1); if(!l || l.lat!==p.lat || l.lon!==p.lon) pts.push(p); });
-    if(d.geom && d.geomKey===keyOf(d.points)) geom.push(...d.geom); else allGeom=false;
+    if(d.geom && d.geomKey===rkey(d)) geom.push(...d.geom); else allGeom=false;
   });
   return {id:v.id+"-all", composite:true, points:pts, geom:allGeom&&geom.length?geom:null, geomKey:allGeom&&geom.length?keyOf(pts):""};
 }
@@ -920,7 +952,7 @@ function renderList(){
       ${others.length?`<div class="list">${others.map(r=>swipeWrap(r.id,cardHtml(r))).join("")}</div>`:`<p class="hint">Balades d'une journée : crée-les avec « + Trajet ».</p>`}
       ${needsBackup()?`<button class="nudge" id="nudge">Pense à sauvegarder tes données → Réglages</button>`:""}
     </div>
-    <div class="fab-row"><button class="btn btn-ghost" id="new">+ Trajet</button><button class="btn btn-primary" id="newv">+ Road trip</button></div>
+    <div class="fab-row"><button class="btn btn-primary" id="newloop">+ Boucle</button><button class="btn btn-ghost" id="new">+ Trajet</button><button class="btn btn-ghost" id="newv">+ Road trip</button></div>
     ${tabsBar()}`;
   bindTabs(); bindSwipes(); bindSeed();
   app.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{
@@ -935,6 +967,7 @@ function renderList(){
   });
   document.getElementById("new").onclick=()=>openEditor(null);
   document.getElementById("newv").onclick=()=>openVoyageEditor(null);
+  document.getElementById("newloop").onclick=openLoop;
   const n=document.getElementById("nudge"); if(n) n.onclick=()=>{ state.tab="reglages"; render(); window.scrollTo(0,0); };
 }
 
@@ -1080,7 +1113,7 @@ function instantiate(t, startIso){
       const day=migrateDay({date:addDays(startIso,d.off), aller:{start:d.start,end:d.start}, note:d.note||"",
         points:d.pts.map(p=>({name:p[0], ctx:p[1], lat:p[2], lon:p[3], ...(p[4]?{ferry:p[4]}:{})}))});
       day.legs=t.legs[k].map((l,i)=>l?{km:l[0],min:l[1]}:ferryLeg(day.points[i],day.points[i+1]));
-      day.legsKey=keyOf(day.points); day.legsSource="osrm";
+      day.legsKey=rkey(day); day.legsSource="osrm";
       return day;
     })};
 }
@@ -1088,7 +1121,7 @@ function instantiate(t, startIso){
 async function prefetchVoyage(id){
   const v=state.routes.find(r=>r.id===id); if(!v) return;
   for(const d of v.days){
-    if(!ready(d) || (d.geom && d.geomKey===keyOf(d.points))) continue;
+    if(!ready(d) || (d.geom && d.geomKey===rkey(d))) continue;
     await ensureGeom(d); await new Promise(r=>setTimeout(r,1200));
   }
 }
@@ -1111,6 +1144,235 @@ function seedPanel(){
 function bindSeed(){
   bindTemplate("seed", start=>{ const v=instantiate(CAP_NORD,start); state.routes.push(v); save(); try{ localStorage.setItem(SEED_KEY,"done"); }catch(e){} openVoyage(v.id); prefetchVoyage(v.id); toast("Road trip Cap Nord créé"); });
   const no=document.getElementById("seed-no"); if(no) no.onclick=()=>{ try{ localStorage.setItem(SEED_KEY,"later"); }catch(e){} render(); toast("Tu le retrouveras dans « + Road trip »"); };
+}
+
+/* ---------- générateur de boucles ---------- */
+const LOOP_KMH=45, LOOP_DETOUR=1.3;
+const DIRS=[{deg:0,label:"vers le nord"},{deg:90,label:"vers l'est"},{deg:180,label:"vers le sud"},{deg:270,label:"vers l'ouest"}];
+const DURS=[[90,"1 h 30"],[120,"2 h"],[180,"3 h"],[240,"4 h"],[300,"5 h"],[360,"6 h"]];
+const offset=(p,km,deg)=>{ const t=deg*Math.PI/180; return {lat:p.lat+km*Math.cos(t)/111.32, lon:p.lon+km*Math.sin(t)/(111.32*Math.cos(p.lat*Math.PI/180))}; };
+function homePoint(){ const d=state.routes.find(r=>r.isDefault && !isVoyage(r) && r.points.length); return d ? d.points[0] : null; }
+function openLoop(){
+  const now=new Date(), late=now.getHours()>=16;
+  if(!state.loop) state.loop={start:homePoint(), dur:180, date:late?addDays(todayIso(),1):todayIso(),
+    time: late ? "10:00" : String(Math.min(20,now.getHours()+1)).padStart(2,"0")+":00", variants:[], busy:false, done:0, err:""};
+  state.draft={points:[]}; state.dayCtx=null; state.view="loop"; render(); window.scrollTo(0,0);
+}
+// villages, cols et points de vue autour du départ (OpenStreetMap, via Overpass)
+async function loopPlaces(c, radiusKm){
+  const R=Math.round(Math.min(90,radiusKm)*1000), a=`(around:${R},${c.lat.toFixed(4)},${c.lon.toFixed(4)})`;
+  const q=`[out:json][timeout:25];(node["place"~"^(village|town)$"]${a};node["mountain_pass"="yes"]${a};node["tourism"="viewpoint"]["name"]${a};);out body 1500;`;
+  const r=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"data="+encodeURIComponent(q)});
+  if(!r.ok) throw new Error(r.status);
+  return ((await r.json()).elements||[]).filter(e=>e.tags&&e.tags.name).map(e=>({name:e.tags.name, lat:e.lat, lon:e.lon,
+    kind:e.tags.mountain_pass==="yes"?"col":e.tags.tourism==="viewpoint"?"vue":"lieu",
+    ctx:e.tags.mountain_pass==="yes"?(e.tags.ele?`Col · ${e.tags.ele} m`:"Col"):e.tags.tourism==="viewpoint"?"Point de vue":(e.tags.place==="town"?"Ville":"Village")}));
+}
+// une boucle = le départ + 4 étapes sur un pentagone, accrochées au col / point de vue / village le plus proche
+function loopPoints(start, r, deg, places){
+  const c=offset(start, r, deg), used=new Set(), pts=[];
+  for(let k=1;k<=4;k++){
+    const raw=offset(c, r, deg+180+k*72);
+    const near=(kinds,max)=>places.filter(p=>kinds.includes(p.kind) && !used.has(p.name) && haversine(p,start)>r*0.35)
+      .map(p=>({p,d:haversine(p,raw)})).filter(x=>x.d<max).sort((a,b)=>a.d-b.d)[0];
+    const hit=near(["col","vue"], r*0.3) || near(["lieu"], r*0.45);
+    if(hit){ used.add(hit.p.name); pts.push({name:hit.p.name, ctx:hit.p.ctx, lat:hit.p.lat, lon:hit.p.lon}); }
+    else pts.push({name:`Point ${k}`, ctx:"", lat:+raw.lat.toFixed(5), lon:+raw.lon.toFixed(5)});
+  }
+  return [start, ...pts, {...start}];
+}
+async function buildLoops(){
+  const L=state.loop, start=L.start; if(!start){ toast("Choisis d'abord un point de départ"); return; }
+  L.busy=true; L.done=0; L.err=""; L.variants=[]; render();
+  const targetKm=L.dur/60*LOOP_KMH, r0=targetKm/LOOP_DETOUR/5.878;
+  let places=[]; try{ places=await loopPlaces(start, r0*2.6+5); }catch(e){}
+  const out=[];
+  for(const dir of DIRS){
+    try{
+      let r=r0, best=null;
+      for(let attempt=0; attempt<2; attempt++){
+        const pts=loopPoints(start, r, dir.deg, places);
+        const res=await fetchLegs(pts, true);
+        const min=res.legs.reduce((s,l)=>s+l.min,0);
+        best={pts,res,min};
+        if(Math.abs(min-L.dur)/L.dur<0.25) break;
+        r*=Math.max(0.6,Math.min(1.6,L.dur/Math.max(min,1)));
+        await new Promise(z=>setTimeout(z,900));
+      }
+      const route={id:"loop-"+dir.deg, name:`Boucle ${dir.label}`, dir:dir.label, moto:true, isDefault:false, points:best.pts,
+        aller:{start:L.time,end:L.time}, retour:{on:false,start:L.time,end:L.time}, legs:best.res.legs, legsSource:best.res.engine, geom:best.res.geom};
+      route.legsKey=route.geomKey=rkey(route);
+      out.push(route);
+    }catch(e){}
+    L.done++; if(state.view==="loop") render();
+    await new Promise(z=>setTimeout(z,900));
+  }
+  L.variants=out; L.busy=false; if(!out.length) L.err="Calcul impossible pour le moment. Vérifie ta connexion et réessaie.";
+  render();
+}
+function loopScore(route){
+  const w=getWx(route, state.loop.date); if(!w.data) return {score:500, w};
+  const g=sampleTrip(route,false,route.aller,w.data).agg, v=verdictOf(g);
+  return {score:v.lvl*1000+(g.rain||0)*60+(g.prob||0)+Math.max(0,(g.gust||0)-30)*2+Math.max(0,12-(g.tMin??12))*4, w, g, v};
+}
+function renderLoop(){
+  const L=state.loop, d=state.draft;
+  if(d && d.points.length){ L.start=d.points.pop(); d.points=[]; L.variants=[]; }
+  const home=homePoint(), days=[...Array(7)].map((_,i)=>addDays(todayIso(),i));
+  const scored=L.variants.map(r=>({r, ...loopScore(r)})).sort((a,b)=>a.score-b.score);
+  const allWx=scored.length && scored.every(x=>x.w.data);
+  app.innerHTML=`
+    <header class="top">
+      <button class="icon-btn" id="back" aria-label="Retour">←</button>
+      <div class="eyebrow">Boucle moto</div>
+      <span style="width:40px"></span>
+    </header>
+    <div class="stack">
+      <div><h2>Une boucle autour de toi</h2><p class="hint">Petites routes sans autoroute, en passant par les cols, points de vue et villages du coin. L'appli en calcule quatre, une par direction, et met en avant celle où il fera le plus beau.</p></div>
+      <div class="panel"><h3>Départ</h3>
+        ${L.start?`<p><b>${esc(L.start.name)}</b> <span class="hint">${esc(L.start.ctx||"")}</span></p>`:`<p class="hint">Choisis d'où tu pars.</p>`}
+        <div class="chiprow">${home?`<button class="pick" id="lp-home" aria-pressed="${!!(L.start&&L.start.lat===home.lat&&L.start.lon===home.lon)}">Maison</button>`:""}<button class="pick" id="gps">Ma position</button></div>
+        <div class="field"><label for="q">Ou une autre adresse</label><input type="search" id="q" placeholder="Ex. : Sancerre" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"></div>
+        <div id="res"></div>
+      </div>
+      <div class="panel"><h3>Temps de roulage</h3>
+        <div class="chiprow">${DURS.map(([m,l])=>`<button class="pick" data-dur="${m}" aria-pressed="${L.dur===m}">${l}</button>`).join("")}</div>
+        <p class="hint">Environ ${fmtInt(L.dur/60*LOOP_KMH)} km de petites routes, sans les pauses.</p>
+      </div>
+      <div class="panel"><h3>Quand</h3>
+        <div class="days" role="group" aria-label="Jour">${days.map((x,i)=>`<button class="day" data-lday="${x}" aria-pressed="${x===L.date}">${i<2?dayLabel(x):dayLabel(x,true)}<small>${esc(fmtDate(x,{day:"numeric",month:"short"}))}</small></button>`).join("")}</div>
+        <div class="field"><label for="lp-time">Heure de départ</label><input type="time" id="lp-time" value="${esc(L.time)}"></div>
+      </div>
+      <button class="btn btn-primary" id="lp-go" ${L.busy?"disabled":""}>${L.busy?"Calcul en cours…":L.variants.length?"Recalculer les boucles":"Proposer des boucles"}</button>
+      ${L.busy?`<div class="progress"><span style="width:${Math.round(L.done/DIRS.length*100)}%"></span></div><p class="hint">Calcul des itinéraires ${L.done}/${DIRS.length}…</p>`:""}
+      ${L.err?`<p class="err">${esc(L.err)}</p>`:""}
+      ${scored.map((x,i)=>{ const r=x.r, t=totals(r), via=r.points.slice(1,-1).map(p=>p.name).join(" · ");
+        return `<div class="panel loopcard">
+          <div class="head"><div><h3>Boucle ${esc(r.dir)}</h3><div class="via">${esc(via)}</div></div>${i===0&&allWx?`<span class="best">Meilleure météo</span>`:""}</div>
+          ${mapBox(r,"card")}
+          <div class="chips"><span class="chip">${fmtKm(t.km)}</span><span class="chip">${fmtDur(t.min)}</span>${x.v?`<span class="vbadge ${VERDICT[x.v.lvl].cls}">${VERDICT[x.v.lvl].label}</span>`:`<span class="vbadge">Météo…</span>`}</div>
+          ${x.v?`<div class="hint">${esc(x.v.reasons.length?x.v.reasons.slice(0,2).map(z=>z.t).join(" · "):"Conditions sèches et douces")} · ${num(x.g.tMin,"°")} à ${num(x.g.tMax,"°")}</div>`:""}
+          <button class="btn btn-primary" data-pickloop="${esc(r.id)}">Choisir cette boucle</button>
+        </div>`; }).join("")}
+    </div>`;
+  const $=id=>document.getElementById(id);
+  $("back").onclick=()=>{ state.draft=null; state.view="list"; render(); };
+  if($("lp-home")) $("lp-home").onclick=()=>{ L.start={...home}; L.variants=[]; render(); };
+  $("gps").onclick=useMyPosition;
+  app.querySelectorAll("[data-dur]").forEach(b=>b.onclick=()=>{ L.dur=+b.dataset.dur; L.variants=[]; render(); });
+  app.querySelectorAll("[data-lday]").forEach(b=>b.onclick=()=>{ L.date=b.dataset.lday; render(); });
+  $("lp-time").onchange=e=>{ if(e.target.value){ L.time=e.target.value; L.variants.forEach(r=>{ r.aller={start:L.time,end:L.time}; }); render(); } };
+  $("lp-go").onclick=buildLoops;
+  let timer; const q=$("q");
+  q.oninput=()=>{clearTimeout(timer);const v=q.value.trim();if(v.length<3){$("res").innerHTML="";return;}timer=setTimeout(()=>search(v),250);};
+  app.querySelectorAll("[data-pickloop]").forEach(b=>b.onclick=()=>{
+    const src=L.variants.find(r=>r.id===b.dataset.pickloop); if(!src) return;
+    const r=JSON.parse(JSON.stringify(src)), via=r.points.slice(1,-1).filter(p=>!/^Point \d/.test(p.name)).map(p=>p.name);
+    r.id="r"+Date.now().toString(36); r.name=via.length?`Boucle par ${via.slice(0,2).join(" et ")}`:`Boucle ${src.dir}`; delete r.dir;
+    state.routes.push(r); save(); state.draft=null;
+    openDetail(r.id); state.day=L.date; render(); toast("Boucle enregistrée");
+  });
+}
+
+/* ---------- road trip préparé par Claude ---------- */
+function claudePrompt(f){
+  return `Prépare-moi un road trip moto pour l'appli « Roule ou pas ».
+
+- Départ : ${f.from||"(à préciser)"}
+- ${f.loop?"Retour au point de départ (boucle)":"Destination ou région : "+(f.to||"(à préciser)")}
+- Date de départ : ${f.date||"(à préciser)"}
+- Nombre de jours : ${f.days}
+- Distance maximum par jour : ${f.km} km${f.duo?"\n- En duo, avec bagages":""}
+- ${f.moto?"Éviter autoroutes et péages autant que possible":"Autoroutes acceptées pour les liaisons"}
+- Envies : ${f.wish||"belles routes moto, cols, points de vue"}
+
+Règles :
+- Une journée = un départ, 2 à 6 étapes précises (villes, cols, points de vue) puis le lieu de la nuitée ; la journée suivante repart de cette nuitée.
+- Donne des coordonnées GPS exactes (latitude, longitude en degrés décimaux) pour chaque étape.
+- Si une étape s'atteint en ferry, ajoute "ferry_min" (durée de traversée en minutes, embarquement compris) sur l'étape d'arrivée.
+- Une note courte par journée : réservations, routes fermées selon la saison, points forts, pièges.
+
+Réponds uniquement avec ce JSON, entre balises \`\`\`json :
+{"rouleoupas":1,"name":"Nom du road trip","start_date":"${f.date||"AAAA-MM-JJ"}","days":[{"day":1,"start":"09:00","note":"…","stops":[{"name":"Lieu","region":"Région, Pays","lat":0.0,"lon":0.0},{"name":"Lieu","region":"Région, Pays","lat":0.0,"lon":0.0,"ferry_min":0}]}]}`;
+}
+function claudeForm(){
+  if(!state.cform){ const h=homePoint(); state.cform={from:h?`${h.name}${h.ctx?", "+h.ctx:""}`:"", to:"", loop:false, date:addDays(todayIso(),7), days:5, km:350, duo:false, moto:true, wish:"", answer:""}; }
+  return state.cform;
+}
+function claudePanel(){
+  const f=claudeForm();
+  return `<div class="panel"><h3>Faire préparer par Claude</h3>
+    <p class="hint">Décris ton envie : l'appli prépare la demande, tu la colles dans Claude, puis tu recolles sa réponse ici. Le road trip s'ajoute à tes trajets sans rien effacer.</p>
+    <div class="field"><label for="cf-from">Départ</label><input type="text" id="cf-from" value="${esc(f.from)}" placeholder="Ex. : Bourges"></div>
+    <label class="switch"><input type="checkbox" id="cf-loop" ${f.loop?"checked":""}> Revenir au départ (boucle)</label>
+    ${f.loop?"":`<div class="field"><label for="cf-to">Destination ou région</label><input type="text" id="cf-to" value="${esc(f.to)}" placeholder="Ex. : Pyrénées, Dolomites, Écosse"></div>`}
+    <div class="row2">
+      <div class="field"><label for="cf-date">Départ le</label><input type="date" id="cf-date" value="${esc(f.date)}"></div>
+      <div class="field"><label for="cf-days">Jours</label><input type="number" inputmode="numeric" id="cf-days" value="${f.days}" min="1" max="30"></div>
+    </div>
+    <div class="field"><label for="cf-km">Km maximum par jour</label><input type="number" inputmode="numeric" id="cf-km" value="${f.km}" min="50" max="1000" step="25"></div>
+    <label class="switch"><input type="checkbox" id="cf-duo" ${f.duo?"checked":""}> En duo</label>
+    <label class="switch"><input type="checkbox" id="cf-moto" ${f.moto?"checked":""}> Éviter autoroutes et péages</label>
+    <div class="field"><label for="cf-wish">Envies</label><textarea id="cf-wish" placeholder="Ex. : routes sinueuses, cols, bord de mer, pas plus de 6 h de route, nuits en camping…">${esc(f.wish)}</textarea></div>
+    <div class="bar"><button class="btn btn-primary" id="cf-copy">1. Copier la demande</button><a class="btn btn-ghost" href="https://claude.ai/new" target="_blank" rel="noopener">2. Ouvrir Claude</a></div>
+    <div class="field"><label for="cf-answer">3. Colle ici la réponse de Claude</label><textarea id="cf-answer" spellcheck="false" placeholder="La réponse contient un bloc qui commence par {&quot;rouleoupas&quot;">${esc(f.answer)}</textarea></div>
+    <button class="btn btn-primary" id="cf-import">4. Ajouter ce road trip</button>
+    ${state.cErr?`<p class="err">${esc(state.cErr)}</p>`:""}
+  </div>`;
+}
+function readClaudeForm(){
+  const f=claudeForm(), $=id=>document.getElementById(id); if(!$("cf-from")) return f;
+  f.from=$("cf-from").value.trim(); f.loop=$("cf-loop").checked; if($("cf-to")) f.to=$("cf-to").value.trim();
+  f.date=$("cf-date").value; f.days=Math.max(1,Math.min(30,+$("cf-days").value||5)); f.km=Math.max(50,Math.min(1000,+$("cf-km").value||350));
+  f.duo=$("cf-duo").checked; f.moto=$("cf-moto").checked; f.wish=$("cf-wish").value.trim(); f.answer=$("cf-answer").value;
+  return f;
+}
+function bindClaude(onDone){
+  const $=id=>document.getElementById(id); if(!$("cf-copy")) return;
+  ["cf-from","cf-to","cf-date","cf-days","cf-km","cf-wish","cf-answer"].forEach(id=>{ if($(id)) $(id).oninput=()=>readClaudeForm(); });
+  ["cf-duo","cf-moto"].forEach(id=>$(id).onchange=()=>readClaudeForm());
+  $("cf-loop").onchange=()=>{ readClaudeForm(); render(); };
+  $("cf-copy").onclick=async()=>{
+    const txt=claudePrompt(readClaudeForm());
+    try{ await navigator.clipboard.writeText(txt); toast("Demande copiée : colle-la dans Claude"); }
+    catch(e){ const a=$("cf-answer"); a.value=txt; a.focus(); a.select(); toast("Copie auto impossible : copie le texte sélectionné"); }
+  };
+  $("cf-import").onclick=async()=>{
+    const f=readClaudeForm(); state.cErr="";
+    try{
+      const v=await voyageFromClaude(f.answer, f.moto);
+      onDone(v); f.answer="";
+    }catch(e){ state.cErr=e.message; render(); }
+  };
+}
+async function geocodeAny(name){
+  try{ const r=await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=fr&format=json&name="+encodeURIComponent(name));
+    const x=(await r.json()).results?.[0]; return x?{lat:x.latitude, lon:x.longitude}:null; }catch(e){ return null; }
+}
+const validTime = t => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(t||"")) ? t : null;
+async function voyageFromClaude(text, moto){
+  if(!text || !text.trim()) throw new Error("Colle d'abord la réponse de Claude.");
+  const m=text.match(/```(?:json)?\s*([\s\S]*?)```/), raw=m?m[1]:text.slice(text.indexOf("{"), text.lastIndexOf("}")+1);
+  let d; try{ d=JSON.parse(raw); }catch(e){ throw new Error("Je ne trouve pas le bloc de données dans ce texte. Colle toute la réponse de Claude."); }
+  if(!d || !Array.isArray(d.days) || !d.days.length) throw new Error("Aucune journée dans cette réponse.");
+  const start=/^\d{4}-\d{2}-\d{2}$/.test(d.start_date||"") ? d.start_date : addDays(todayIso(),7);
+  const v={id:"v"+Date.now().toString(36), kind:"voyage", source:"claude", name:String(d.name||"Road trip").slice(0,60), days:[]};
+  for(const [k,day] of d.days.entries()){
+    const pts=[];
+    for(const st of (day.stops||[])){
+      if(!st || !st.name) continue;
+      let lat=+st.lat, lon=+st.lon;
+      if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180||(lat===0&&lon===0)){ const g=await geocodeAny(st.name); if(!g) continue; lat=g.lat; lon=g.lon; }
+      pts.push({name:String(st.name).slice(0,60), ctx:String(st.region||"").slice(0,60), lat, lon, ...(+st.ferry_min>0?{ferry:Math.round(+st.ferry_min)}:{})});
+    }
+    if(pts.length<2) continue;
+    if(pts[0].ferry) delete pts[0].ferry;
+    const n=Number.isFinite(+day.day)&&+day.day>0 ? +day.day : k+1, t=validTime(day.start)||"09:00";
+    v.days.push(migrateDay({date:addDays(start,n-1), aller:{start:t,end:t}, note:String(day.note||"").slice(0,400), points:pts, moto:!!moto}));
+  }
+  if(!v.days.length) throw new Error("Aucune journée exploitable : il faut au moins un départ et une arrivée par jour.");
+  v.days.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+  return v;
 }
 
 /* ---------- éditeur de road trip ---------- */
@@ -1139,7 +1401,7 @@ function renderVoyageEditor(){
       <div class="field"><label for="vname">Nom du road trip</label>
         <input type="text" id="vname" placeholder="Ex. : Norvège, fjords et cols" value="${esc(v.name)}" maxlength="60"></div>
       ${v.days.length?`<div class="field"><label for="vstart">Départ du road trip (jour 1)</label><input type="date" id="vstart" value="${esc(v.days[0].date)}">
-        <p class="hint">Changer cette date décale toutes les journées d'autant.</p></div>`:templatePanel()}
+        <p class="hint">Changer cette date décale toutes les journées d'autant.</p></div>`:claudePanel()+templatePanel()}
       <div class="panel">
         <h2>Journées</h2>
         ${v.days.length?`<div class="dayrows">${v.days.map((d,i)=>{ const tl=ready(d)?timeline(d,false,toMin(d.aller.start)):null;
@@ -1162,6 +1424,7 @@ function renderVoyageEditor(){
   const $=id=>document.getElementById(id);
   $("vname").oninput=e=>v.name=e.target.value;
   if($("vstart")) $("vstart").onchange=e=>{ const nd=e.target.value; if(!nd) return; const delta=dayDiff(v.days[0].date, nd); v.days.forEach(d=>d.date=addDays(d.date,delta)); if(!state.vNew) upsertVoyage(v); render(); toast("Dates décalées"); };
+  bindClaude(nv=>{ nv.id=v.id; if(v.name.trim()) nv.name=v.name; state.vdraft=nv; upsertVoyage(nv); state.vdraft=null; openVoyage(nv.id); prefetchVoyage(nv.id); toast("Road trip ajouté : calcul des routes en cours"); });
   bindTemplate("tpl", start=>{ const t=instantiate(CAP_NORD,start); t.id=v.id; if(v.name.trim()) t.name=v.name; state.vdraft=t; upsertVoyage(t); prefetchVoyage(t.id); render(); toast("Road trip Cap Nord créé"); });
   $("back").onclick=()=>{ const saved=state.routes.some(r=>r.id===v.id); state.vdraft=null; saved&&v.days.length ? openVoyage(v.id) : (state.view="list", render()); };
   $("addday").onclick=()=>editDay(-1);
@@ -1217,6 +1480,7 @@ function slotPanel(d, which){
       <div class="field"><label for="${which}-e">Départ au plus tard</label><input type="time" id="${which}-e" value="${esc(slot.end)}"></div>
     </div>${out}</div>`;
 }
+const motoSwitch = d => `<label class="switch"><input type="checkbox" id="moto" ${d.moto?"checked":""}> Éviter autoroutes et péages (petites routes)</label>`;
 function renderEditor(){
   const d=state.draft, n=d.points.length, ok=n>=2, day=!!state.dayCtx;
   const dayNum = day ? (state.dayCtx.i>=0 ? state.dayCtx.i+1 : state.vdraft.days.length+1) : 0;
@@ -1244,7 +1508,7 @@ function renderEditor(){
   const hintEmpty = day ? "Départ de la journée, tes étapes, puis l'endroit où tu dors : la carte et la météo suivent." :
     d.isDefault ? "Commence par l'adresse de ta maison, puis celle du boulot." : "Ajoute au moins un départ et une arrivée.";
   const timing = day
-    ? `<div class="panel"><h3>Départ</h3>${slotPanel(d,"aller")}</div>`
+    ? `<div class="panel"><h3>Départ</h3>${slotPanel(d,"aller")}${motoSwitch(d)}</div>`
     : `<div class="panel">
         <h3>Aller</h3>
         ${slotPanel(d,"aller")}
@@ -1253,6 +1517,7 @@ function renderEditor(){
           <label class="switch"><input type="checkbox" id="ret" ${d.retour.on?"checked":""}> Même trajet en sens inverse</label>
         </div>
         ${d.retour.on?slotPanel(d,"retour"):""}
+        ${motoSwitch(d)}
       </div>
       <label class="switch"><input type="checkbox" id="def" ${d.isDefault?"checked":""}> Trajet par défaut (affiché en premier)</label>`;
   app.innerHTML = `
@@ -1277,7 +1542,7 @@ function renderEditor(){
           <div><b>${est?"≈ ":""}${fmtDur(t.min)}</b><span>${d.points.some(p=>p.ferry>0)?"Durée, ferry compris":"Durée par la route"}</span></div></div>
           ${state.routing?`<p class="hint">Calcul de l'itinéraire routier…</p>`:
             state.routingErr?`<p class="err">Calcul routier indisponible : durée estimée. Rouvre l'itinéraire avec du réseau pour la corriger.</p>`:
-            `<p class="hint">Durée de route sans bouchons ; les pauses sont ajoutées aux heures de passage.</p>`}`:""}
+            `<p class="hint">${d.moto?"Itinéraire moto sans autoroute. ":""}Durée de route sans bouchons ; les pauses sont ajoutées aux heures de passage.</p>`}`:""}
       </div>
 
       ${timing}
@@ -1303,6 +1568,7 @@ function renderEditor(){
     e.onchange=()=>{d[w].end=e.value||d[w].end; if(toMin(d[w].end)<toMin(d[w].start)) d[w].start=d[w].end; render();};
   });
   if($("ret")) $("ret").onchange=e=>{d.retour.on=e.target.checked;render();};
+  if($("moto")) $("moto").onchange=e=>{ d.moto=e.target.checked; state.routingErr=false; render(); };
   if($("def")) $("def").onchange=e=>{d.isDefault=e.target.checked;};
   app.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>{const i=+b.dataset.up;[d.points[i-1],d.points[i]]=[d.points[i],d.points[i-1]];render();});
   app.querySelectorAll("[data-down]").forEach(b=>b.onclick=()=>{const i=+b.dataset.down;[d.points[i+1],d.points[i]]=[d.points[i],d.points[i+1]];render();});
@@ -1598,6 +1864,7 @@ function renderView(){
   if(state.view==="gear-edit") return renderGearEdit();
   if(state.view==="voyage") return renderVoyage();
   if(state.view==="voyage-edit") return renderVoyageEditor();
+  if(state.view==="loop") return renderLoop();
   return state.tab==="equipement" ? renderGear() : state.tab==="reglages" ? renderRules() : renderList();
 }
 function render(){
