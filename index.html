@@ -166,6 +166,28 @@ input[type=text],input[type=search],input[type=time]{width:100%;min-width:0;back
 .rule-in{display:flex;align-items:center;gap:6px;flex:0 0 auto}
 .rule-in input{width:86px !important;text-align:right}
 .rule-in small{font-size:12px;color:var(--muted);width:70px}
+.fab-row{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:4;display:flex;gap:8px}
+.fab-row .btn{box-shadow:0 6px 20px rgba(0,0,0,.25);padding:14px 18px;font-size:16px;white-space:nowrap}
+.fab-row .btn-ghost{background:var(--surface)}
+.vbadge{display:inline-block;font:700 13px/1 var(--display);text-transform:uppercase;letter-spacing:.04em;padding:5px 8px;border-radius:6px;background:var(--bg);color:var(--muted);white-space:nowrap}
+.vbadge.go{background:var(--ok);color:var(--surface)}
+.vbadge.warn{background:var(--warn);color:var(--accent-ink)}
+.vbadge.stop{background:var(--danger);color:var(--surface)}
+.vdots{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.dayrows{display:flex;flex-direction:column;gap:8px}
+.dayrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer}
+.dayrow[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.dayrow > div{min-width:0}
+.dayrow .t{font-weight:600}
+.dayrow .s{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+details.more summary{cursor:pointer;font-weight:600;font-size:14px;padding:6px 0}
+.col{display:flex;flex-direction:column;gap:10px}
+textarea{width:100%;min-height:90px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;font:13px/1.4 ui-monospace,Menlo,monospace;color:var(--ink)}
+input[type=date]{width:100%;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px}
+.sr-file{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none}
+.nudge{display:block;width:100%;text-align:left;border:1px dashed var(--warn);background:transparent;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
+.import-box{display:flex;flex-direction:column;gap:10px;border:1px solid var(--warn);border-radius:10px;padding:12px}
+.wx-alt{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion:no-preference){.card{transition:transform .12s}.card:active{transform:scale(.985)}}
 </style>
 </head>
@@ -178,15 +200,35 @@ input[type=text],input[type=search],input[type=time]{width:100%;min-width:0;back
 const KEY = "rouleoupas.routes.v1";
 const FALLBACK_KMH = 55, FALLBACK_FACTOR = 1.3; // utilisés seulement si le calcul routier échoue
 
+/* ---------- dates ---------- */
+const isoDate = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const addDays = (iso,n) => { const [y,m,d]=iso.split("-").map(Number); return isoDate(new Date(y,m-1,d+n)); };
+const todayIso = () => isoDate(new Date());
+const nowMin = () => { const d=new Date(); return d.getHours()*60+d.getMinutes(); };
+const fmtDate = (iso, opts) => { const [y,m,d]=iso.split("-").map(Number); return new Date(y,m-1,d).toLocaleDateString("fr-FR", opts||{weekday:"short", day:"numeric", month:"short"}); };
+
 /* ---------- modèle & stockage ---------- */
 function defaultRoute(){
   return {id:"maison-boulot", name:"Maison ↔ Boulot", isDefault:true, points:[],
     aller:{start:"07:30", end:"08:00"}, retour:{on:true, start:"17:30", end:"18:00"},
     legs:null, legsKey:"", legsSource:""};
 }
+const isVoyage = r => !!r && r.kind==="voyage";
+// un jour de road trip a la même forme qu'un trajet : points, tronçons, plage de départ (sans retour)
+function migrateDay(d){
+  if(!d.id) d.id="d"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  if(!d.date) d.date=addDays(todayIso(),1);
+  if(!d.aller) d.aller={start:"09:00",end:"09:00"};
+  d.retour={on:false,start:d.aller.start,end:d.aller.end};
+  if(!Array.isArray(d.points)) d.points=[];
+  if(!("legs" in d)){ d.legs=null; d.legsKey=""; d.legsSource=""; }
+  return d;
+}
 function migrate(r){
+  if(isVoyage(r)){ r.days=(Array.isArray(r.days)?r.days:[]).map(migrateDay); if(typeof r.name!=="string") r.name=""; return r; }
   if(!r.aller){ const d=r.departure||"08:00"; r.aller={start:d,end:d}; }
   if(!r.retour) r.retour={on:false,start:"17:30",end:"18:00"};
+  if(!Array.isArray(r.points)) r.points=[];
   delete r.departure; delete r.speed;
   if(!("legs" in r)){ r.legs=null; r.legsKey=""; r.legsSource=""; }
   return r;
@@ -194,17 +236,18 @@ function migrate(r){
 function load(){
   let routes=null;
   try{ const raw=localStorage.getItem(KEY); if(raw) routes=JSON.parse(raw); }catch(e){}
-  routes=(routes||[]).filter(r=>!r.example).map(migrate);
+  routes=(Array.isArray(routes)?routes:[]).filter(r=>r && !r.example).map(migrate);
   if(!routes.length) routes.push(defaultRoute());
   return routes;
 }
 function save(){
   try{ localStorage.setItem(KEY, JSON.stringify(state.routes)); return true; }
-  catch(e){ toast("Enregistrement impossible sur cet appareil"); return false; }
+  catch(e){ toast("Enregistrement impossible : mémoire du téléphone pleine"); return false; }
 }
 const state = { rules:{}, pendingMaps:[], tab:"trajets", gear:[], routes: load(), view:"list", draft:null, confirmDelete:false, routing:false, routingErr:false };
 save();
-try{ state.gear=JSON.parse(localStorage.getItem("rouleoupas.gear.v1"))||[]; }catch(e){}
+try{ const g=JSON.parse(localStorage.getItem("rouleoupas.gear.v1")); if(Array.isArray(g)) state.gear=g; }catch(e){}
+const editing = () => ["edit","gear-edit","voyage-edit"].includes(state.view);
 
 /* ---------- temps ---------- */
 const toMin = s => { const [h,m]=(s||"00:00").split(":").map(Number); return h*60+m; };
@@ -236,11 +279,18 @@ function legsFor(route, reverse){
   let legs=route.legs && route.legsKey===keyOf(route.points) ? route.legs : estimateLegs(route.points);
   return reverse ? legs.slice().reverse() : legs;
 }
+// heures de passage ; une pause est ajoutée à chaque tranche de route prévue dans les réglages
 function timeline(route, reverse, startMin){
   const pts = reverse ? route.points.slice().reverse() : route.points;
   const legs = legsFor(route, reverse);
-  let km=0, m=startMin; const out=[{pt:pts[0],km:0,min:m}];
-  legs.forEach((l,i)=>{ km+=l.km; m+=l.min; out.push({pt:pts[i+1],km,min:m}); });
+  const every = state.rules.pauseEvery>0 ? state.rules.pauseEvery : 0, len = state.rules.pauseLen>0 ? state.rules.pauseLen : 0;
+  const stopsBefore = drive => every&&len ? Math.max(0, Math.ceil(drive/every)-1) : 0;
+  let km=0, m=startMin, drive=0, pauses=0; const out=[{pt:pts[0],km:0,min:m,pauses:0}];
+  legs.forEach((l,i)=>{
+    const n=stopsBefore(drive+l.min)-stopsBefore(drive);
+    drive+=l.min; km+=l.km; pauses+=n; m+=l.min+n*len;
+    out.push({pt:pts[i+1],km,min:m,pauses});
+  });
   return out;
 }
 const totals = route => { const l=legsFor(route,false); return {km:l.reduce((s,x)=>s+x.km,0), min:l.reduce((s,x)=>s+x.min,0)}; };
@@ -261,11 +311,11 @@ async function ensureRouting(){
   }finally{ if(state.routing===k) state.routing=false; if(state.view==="edit") render(); }
 }
 
-// allège le tracé : points arrondis à ~1 m, en sautant ceux à moins de ~25 m du précédent
+// allège le tracé : points arrondis à ~1 m, en sautant ceux à moins de ~60 m du précédent
 function thin(coords){
   const out=[]; let last=null;
   for(const [lon,lat] of coords){
-    if(last && Math.abs(lat-last[0])<0.00022 && Math.abs(lon-last[1])<0.00033) continue;
+    if(last && Math.abs(lat-last[0])<0.00055 && Math.abs(lon-last[1])<0.0009) continue;
     last=[+lat.toFixed(5), +lon.toFixed(5)]; out.push(last);
   }
   const end=coords.at(-1); if(end) out.push([+end[1].toFixed(5), +end[0].toFixed(5)]);
@@ -279,23 +329,23 @@ async function ensureGeom(route){
   try{
     const res=await fetchLegs(route.points);
     route.legs=res.legs; route.geom=res.geom; route.geomKey=route.legsKey=keyOf(route.points); route.legsSource="osrm";
-    save(); if(state.view!=="edit") render();
+    save(); if(!editing()) render();
   }catch(e){} finally{ setTimeout(()=>delete geomPending[route.id], 60000); }
 }
 
 /* ---------- carte ---------- */
 let liveMaps=[];
 const isDark = () => document.documentElement.dataset.theme==="dark" || (document.documentElement.dataset.theme!=="light" && matchMedia("(prefers-color-scheme: dark)").matches);
-function mapBox(route, mode){
+function mapBox(route, mode, marks){
   const id="m"+Math.random().toString(36).slice(2,8);
-  if(!ready(route)) return `<div class="mapbox"><div class="empty-map">Ajoute tes adresses<br>pour voir le trajet</div></div>`;
-  state.pendingMaps.push({id, route, interactive: mode==="detail"});
+  if(!ready(route)) return `<div class="mapbox"><div class="empty-map">Ajoute tes étapes<br>pour voir le trajet</div></div>`;
+  state.pendingMaps.push({id, route, interactive: mode==="detail", marks: marks||null});
   return `<div class="mapbox${mode==="card"?"":" big"}" id="${id}" aria-label="Carte du trajet"></div>`;
 }
 function mountMaps(){
   liveMaps.forEach(m=>{ try{m.remove();}catch(e){} }); liveMaps=[];
   const jobs=state.pendingMaps; state.pendingMaps=[];
-  jobs.forEach(({id, route, interactive})=>{
+  jobs.forEach(({id, route, interactive, marks})=>{
     const el=document.getElementById(id); if(!el) return;
     if(!window.L){ el.innerHTML=sketch(route.points); return; } // hors ligne : croquis simple
     const opts=interactive?{zoomControl:true}:{zoomControl:false,dragging:false,touchZoom:false,doubleClickZoom:false,scrollWheelZoom:false,boxZoom:false,keyboard:false,tap:false};
@@ -303,24 +353,31 @@ function mountMaps(){
     map.attributionControl.setPrefix(false);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       {maxZoom:19, className:isDark()?"tiles-dark":"", attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
-    const css=getComputedStyle(document.documentElement), accent=css.getPropertyValue("--accent").trim()||"#f2b705", ink=css.getPropertyValue("--ink").trim()||"#1c2329";
+    const css=getComputedStyle(document.documentElement), tok=(n,f)=>css.getPropertyValue(n).trim()||f;
+    const accent=tok("--accent","#f2b705"), ink=tok("--ink","#1c2329"), lvlColor=[tok("--ok","#2f8f5b"),tok("--warn","#d9822b"),tok("--danger","#b8352a")];
     const hasGeom = route.geom && route.geomKey===keyOf(route.points);
     const line = hasGeom ? route.geom : route.points.map(p=>[p.lat,p.lon]);
     L.polyline(line,{color:ink,weight:7,opacity:.35}).addTo(map);
     L.polyline(line,{color:accent,weight:4,opacity:1,dashArray:hasGeom?null:"6 8"}).addTo(map);
-    route.points.forEach((p,i)=>{
-      const end=i===0||i===route.points.length-1;
-      L.circleMarker([p.lat,p.lon],{radius:end?7:5,color:ink,weight:2,fillColor:end?accent:"#ffffff",fillOpacity:1}).addTo(map)
-        .bindTooltip(p.name,{direction:"top",offset:[0,-6]});
-    });
+    if(marks && marks.length){
+      // un point par relevé météo, coloré selon le verdict à cet endroit
+      marks.forEach(k=>L.circleMarker([k.lat,k.lon],{radius:k.stop?8:6,color:ink,weight:2,fillColor:lvlColor[k.lvl]||accent,fillOpacity:1}).addTo(map)
+        .bindTooltip(k.label,{direction:"top",offset:[0,-6]}));
+    } else {
+      route.points.forEach((p,i)=>{
+        const end=i===0||i===route.points.length-1;
+        L.circleMarker([p.lat,p.lon],{radius:end?7:5,color:ink,weight:2,fillColor:end?accent:"#ffffff",fillOpacity:1}).addTo(map)
+          .bindTooltip(p.name,{direction:"top",offset:[0,-6]});
+      });
+    }
     map.fitBounds(L.latLngBounds(line),{padding:[18,18]});
     liveMaps.push(map);
-    if(!hasGeom) ensureGeom(route);
+    if(!hasGeom && !route.composite) ensureGeom(route);
   });
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.06-1";
+const APP_VERSION="2026.10.06-2";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -328,7 +385,7 @@ async function checkUpdate(){
   try{
     const r=await fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"});
     const m=(await r.text()).match(/APP_VERSION="([^"]+)"/);
-    if(m && cmpVer(m[1],APP_VERSION)>0 && newVersion!==m[1]){ newVersion=m[1]; if(state.view!=="edit" && state.view!=="gear-edit") render(); }
+    if(m && cmpVer(m[1],APP_VERSION)>0 && newVersion!==m[1]){ newVersion=m[1]; if(!editing()) render(); }
   }catch(e){}
 }
 function updateBanner(){
@@ -353,14 +410,11 @@ function sketch(points, size=84){
 }
 
 /* ---------- météo ---------- */
-const WX_KEY="rouleoupas.wx.v1", WX_TTL=30*60*1000, WX_RETRY=60*1000;
+const WX_KEY="rouleoupas.wx.v2", WX_TTL=30*60*1000, WX_RETRY=60*1000, HORIZON=15;
 const wx={cache:{}, pending:{}, err:{}};
+try{ localStorage.removeItem("rouleoupas.wx.v1"); }catch(e){}
 try{ wx.cache=JSON.parse(localStorage.getItem(WX_KEY))||{}; }catch(e){}
-const isoDate = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-const addDays = (iso,n) => { const [y,m,d]=iso.split("-").map(Number); return isoDate(new Date(y,m-1,d+n)); };
-const todayIso = () => isoDate(new Date());
-const nowMin = () => { const d=new Date(); return d.getHours()*60+d.getMinutes(); };
-const ready = r => r.points.length>=2;
+const ready = r => !!r && Array.isArray(r.points) && r.points.length>=2;
 function defaultDay(route){
   // une fois le dernier trajet du jour terminé, on affiche demain
   if(!ready(route)) return todayIso();
@@ -372,8 +426,31 @@ function dayLabel(iso, short){
   const t=todayIso();
   if(iso===t) return "Aujourd'hui";
   if(iso===addDays(t,1)) return "Demain";
-  const [y,m,d]=iso.split("-").map(Number);
-  return new Date(y,m-1,d).toLocaleDateString("fr-FR", short?{weekday:"short"}:{weekday:"long",day:"numeric",month:"long"});
+  return fmtDate(iso, short?{weekday:"short"}:{weekday:"long",day:"numeric",month:"long"});
+}
+// points de relevé : les étapes saisies + un point tous les ~20 km (40 points au plus) sur le tracé routier
+function routeSamples(route){
+  const pts=route.points, legs=legsFor(route,false);
+  const cum=[0]; legs.forEach(l=>cum.push(cum.at(-1)+l.km)); const total=cum.at(-1);
+  const out=pts.map((p,i)=>({name:p.name, lat:p.lat, lon:p.lon, km:cum[i], stop:true}));
+  const g=route.geom;
+  if(g && g.length>1 && route.geomKey===keyOf(pts) && total>0){
+    const gc=[0]; for(let i=1;i<g.length;i++) gc.push(gc[i-1]+haversine({lat:g[i-1][0],lon:g[i-1][1]},{lat:g[i][0],lon:g[i][1]}));
+    const gTot=gc.at(-1)||1, step=Math.max(20, total/38);
+    let j=0;
+    for(let km=step; km<total-step*0.5; km+=step){
+      if(cum.some(c=>Math.abs(c-km)<step*0.4)) continue;
+      const target=km/total*gTot; while(j<gc.length-2 && gc[j+1]<target) j++;
+      const f=Math.min(1,Math.max(0,(target-gc[j])/((gc[j+1]-gc[j])||1))), a=g[j], b=g[j+1];
+      out.push({name:"", lat:+(a[0]+(b[0]-a[0])*f).toFixed(4), lon:+(a[1]+(b[1]-a[1])*f).toFixed(4), km, stop:false});
+    }
+  }
+  return out.sort((x,y)=>x.km-y.km);
+}
+// heure de passage à un kilométrage donné, entre deux étapes
+function timeAt(tl, km){
+  for(let i=1;i<tl.length;i++) if(km<=tl[i].km+1e-6){ const a=tl[i-1], b=tl[i]; const f=(km-a.km)/((b.km-a.km)||1); return a.min+(b.min-a.min)*f; }
+  return tl.at(-1).min;
 }
 async function fetchWx(points, date){
   const lat=points.map(p=>p.lat.toFixed(4)).join(","), lon=points.map(p=>p.lon.toFixed(4)).join(",");
@@ -381,25 +458,28 @@ async function fetchWx(points, date){
   const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=${vars}&timezone=auto&start_date=${date}&end_date=${addDays(date,1)}`);
   if(!r.ok) throw new Error(r.status);
   let d=await r.json(); if(!Array.isArray(d)) d=[d];
-  return d.map(x=>x.hourly);
+  return {hourly:d.map(x=>{ const h=x.hourly||{}; delete h.time; return h; }), elev:d.map(x=>x.elevation)};
 }
 function saveWx(){
   const t=todayIso();
   for(const k in wx.cache) if(k.split("|")[1]<t) delete wx.cache[k];
-  try{ localStorage.setItem(WX_KEY, JSON.stringify(wx.cache)); }catch(e){}
+  try{ localStorage.setItem(WX_KEY, JSON.stringify(wx.cache)); }catch(e){ try{ localStorage.removeItem(WX_KEY); }catch(_){} }
 }
 function getWx(route, date, force){
-  const k=keyOf(route.points)+"|"+date, c=wx.cache[k];
+  const t=todayIso();
+  if(date<t) return {data:null, past:true};
+  if(date>addDays(t,HORIZON)) return {data:null, later:addDays(date,-HORIZON)};
+  const S=routeSamples(route), k=keyOf(S)+"|"+date, c=wx.cache[k];
   if(force){ delete wx.err[k]; if(c) c.at=0; }
   const fresh = c && Date.now()-c.at<WX_TTL, recentErr = wx.err[k] && Date.now()-wx.err[k]<WX_RETRY;
   if(!fresh && !wx.pending[k] && !recentErr){
     wx.pending[k]=true;
-    fetchWx(route.points,date)
-      .then(h=>{ wx.cache[k]={at:Date.now(), hourly:h}; delete wx.err[k]; saveWx(); })
+    fetchWx(S,date)
+      .then(res=>{ wx.cache[k]={at:Date.now(), hourly:res.hourly, elev:res.elev}; delete wx.err[k]; saveWx(); })
       .catch(()=>{ wx.err[k]=Date.now(); })
-      .finally(()=>{ delete wx.pending[k]; if(state.view!=="edit") render(); });
+      .finally(()=>{ delete wx.pending[k]; if(!editing()) render(); });
   }
-  return {data:c||null, loading:!!wx.pending[k], error:!!wx.err[k]};
+  return {data:c||null, loading:!!wx.pending[k], error:!!wx.err[k], samples:S};
 }
 
 const SKY = {0:"Ciel dégagé",1:"Peu nuageux",2:"Éclaircies",3:"Couvert",45:"Brouillard",48:"Brouillard givrant",
@@ -413,30 +493,44 @@ function skyRank(c){
   if(c>=51) return 4; if(c===45) return 3; return c/3; // 0 à 3 : nébulosité
 }
 const lo = a => a.length?Math.min(...a):NaN, hi = a => a.length?Math.max(...a):NaN;
-function sampleTrip(route, reverse, slot, hourly){
-  const n=route.points.length, a=timeline(route,reverse,toMin(slot.start)), b=timeline(route,reverse,toMin(slot.end));
-  const per=a.map((s,j)=>{
-    const h=hourly[reverse?n-1-j:j]; if(!h) return null;
-    const rows=[]; for(let i=Math.max(0,Math.floor(s.min/60)); i<=Math.min(47,Math.floor(b[j].min/60)); i++) rows.push(i);
-    const pick=k=>rows.map(i=>h[k]?.[i]).filter(v=>v!=null);
+const fmtInt = n => Math.round(n).toLocaleString("fr-FR");
+// nom lisible d'un point de relevé : l'étape, ou le kilométrage depuis le départ (+ altitude en montagne)
+function whereOf(p){
+  if(!p) return "";
+  const base = p.pt.stop ? p.pt.name : `km ${fmtInt(p.km)}`;
+  return base + (Number.isFinite(p.elev) && p.elev>=300 ? ` · ${fmtInt(p.elev)} m` : "");
+}
+function sampleTrip(route, reverse, slot, data){
+  const S=routeSamples(route), total=totals(route).km;
+  const a=timeline(route,reverse,toMin(slot.start)), b=timeline(route,reverse,toMin(slot.end));
+  const idx=S.map((_,i)=>i); if(reverse) idx.reverse();
+  const per=idx.map(i=>{
+    const h=data.hourly[i], s=S[i]; if(!h) return null;
+    const k = reverse ? total-s.km : s.km;
+    const m1=timeAt(a,k), m2=timeAt(b,k);
+    const rows=[]; for(let r=Math.max(0,Math.floor(m1/60)); r<=Math.min(47,Math.floor(m2/60)); r++) rows.push(r);
+    const pick=key=>rows.map(r=>h[key]?.[r]).filter(v=>v!=null);
     const codes=pick("weather_code");
-    return {pt:s.pt, m1:s.min, m2:b[j].min,
+    return {pt:s, km:k, elev:data.elev?.[i], m1, m2,
       tMin:lo(pick("temperature_2m")), tMax:hi(pick("temperature_2m")), feel:lo(pick("apparent_temperature")),
       rain:hi(pick("precipitation")), prob:hi(pick("precipitation_probability")),
       wind:hi(pick("wind_speed_10m")), gust:hi(pick("wind_gusts_10m")), vis:lo(pick("visibility")),
       code:codes.length?codes.reduce((w,c)=>skyRank(c)>skyRank(w)?c:w):NaN};
   }).filter(Boolean);
   const all=k=>per.map(p=>p[k]).filter(Number.isFinite);
+  const best=(k,dir)=>per.filter(p=>Number.isFinite(p[k])).reduce((w,p)=>!w||(dir<0?p[k]<w[k]:p[k]>w[k])?p:w,null);
   const worst=per.reduce((w,p)=>!w||skyRank(p.code)>skyRank(w.code)?p:w,null);
   return {per, end:b.at(-1).min,
     agg:{tMin:lo(all("tMin")), tMax:hi(all("tMax")), feel:lo(all("feel")), rain:hi(all("rain")), prob:hi(all("prob")),
-         wind:hi(all("wind")), gust:hi(all("gust")), vis:lo(all("vis")), code:worst?.code, codeAt:worst?.pt?.name}};
+         wind:hi(all("wind")), gust:hi(all("gust")), vis:lo(all("vis")), code:worst?.code,
+         many:per.length>2, coldAt:whereOf(best("tMin",-1)), rainAt:whereOf(best("rain",1)), gustAt:whereOf(best("gust",1)),
+         visAt:whereOf(best("vis",-1)), altMax:hi(all("elev"))}};
 }
 const num = (v,suf="") => Number.isFinite(v) ? Math.round(v)+suf : "—";
 const mm = v => !Number.isFinite(v) ? "—" : (v<0.05?"0":v.toFixed(1).replace(".",","))+" mm";
 const visKm = v => !Number.isFinite(v) ? "—" : v>=10000 ? "10+ km" : (v/1000).toFixed(v<1000?1:0).replace(".",",")+" km";
 function wxBlock(label, route, reverse, slot, data, date, detailed){
-  const s=sampleTrip(route,reverse,slot,data.hourly), g=s.agg;
+  const s=sampleTrip(route,reverse,slot,data), g=s.agg;
   const past = date===todayIso() && nowMin()>s.end;
   const v=verdictOf(g), o=outfitOf(g), ride=rideFeel(g.tMin, avgSpeed(route));
   const cells=`<div class="wx-grid">
@@ -445,24 +539,42 @@ function wxBlock(label, route, reverse, slot, data, date, detailed){
     <div class="wx-cell"><span>Rafales</span><b>${num(g.gust)}</b><small>vent ${num(g.wind)} km/h</small></div>
     <div class="wx-cell"><span>Visib.</span><b>${visKm(g.vis)}</b><small>min.</small></div></div>`;
   const flags=verdictHtml(v,!detailed)+outfitHtml(o,!detailed);
-  const table = detailed ? `<div class="pts"><table><thead><tr><th>Passage</th><th>Temp.</th><th>Pluie</th><th>Rafales</th><th>Ciel</th></tr></thead><tbody>
-    ${s.per.map(p=>`<tr><td>${esc(p.pt.name)}<small>${fmtSlot(p.m1,p.m2)}</small></td><td>${num(p.tMin,"°")}<small>${num(p.feel,"°")} ress.</small></td><td>${mm(p.rain)}<small>${num(p.prob," %")}</small></td><td>${num(p.gust)}<small>km/h</small></td><td>${esc(SKY[p.code]??"—")}</td></tr>`).join("")}
-    </tbody></table></div>` : "";
+  const alt = detailed && g.many ? `<div class="wx-alt">${Number.isFinite(g.altMax)&&g.altMax>=300?`Altitude max ≈ ${fmtInt(g.altMax)} m · `:""}point le plus froid : ${esc(g.coldAt||"—")}</div>` : "";
+  let table="";
+  if(detailed){
+    const tbl=`<div class="pts"><table><thead><tr><th>Passage</th><th>Temp.</th><th>Pluie</th><th>Rafales</th><th>Ciel</th></tr></thead><tbody>
+    ${s.per.map(p=>`<tr><td>${esc(whereOf(p))}<small>${fmtSlot(p.m1,p.m2)}</small></td><td>${num(p.tMin,"°")}<small>${num(p.feel,"°")} ress.</small></td><td>${mm(p.rain)}<small>${num(p.prob," %")}</small></td><td>${num(p.gust)}<small>km/h</small></td><td>${esc(SKY[p.code]??"—")}</td></tr>`).join("")}
+    </tbody></table></div>`;
+    table = s.per.length>8 ? `<details class="more"><summary>Détail des ${s.per.length} points du trajet</summary>${tbl}</details>` : tbl;
+  }
   return `<div class="wx${past?" past":""}">
-    <div class="wx-head"><h3>${label} · ${fmtSlot(toMin(slot.start),toMin(slot.end))}</h3>
+    <div class="wx-head"><h3>${esc(label)} · ${fmtSlot(toMin(slot.start),toMin(slot.end))}</h3>
       <span class="wx-sky">${past?"Trajet passé · ":""}${esc(SKY[g.code]??"—")}</span></div>
-    ${flags}${cells}${table}</div>`;
+    ${flags}${cells}${alt}${table}</div>`;
+}
+// points colorés pour la carte
+function wxMarks(route, reverse, slot, data){
+  return sampleTrip(route,reverse,slot,data).per.map(p=>{
+    const v=verdictOf(p);
+    return {lat:p.pt.lat, lon:p.pt.lon, stop:p.pt.stop, lvl:v.lvl,
+      label:`${whereOf(p)} · ${fmtSlot(p.m1,p.m2)} · ${VERDICT[v.lvl].label}${v.reasons[0]?" : "+v.reasons[0].t:""}`};
+  });
+}
+function wxFoot(w){
+  const at=new Date(w.data.at), n=(w.samples||[]).length, along=(w.samples||[]).some(s=>!s.stop);
+  return `<p class="hint">Prévisions Open-Meteo de ${fmtTime(at.getHours()*60+at.getMinutes())}${w.loading?" · mise à jour…":""}${w.error?" · mise à jour impossible":""}. ${along?`Météo relevée en ${n} points le long de la route, altitude comprise. `:""}Valeurs les plus défavorables sur ta plage horaire, pluie en mm par heure.</p>`;
 }
 
 /* ---------- verdict & tenue ---------- */
 const RULES_KEY="rouleoupas.rules.v1";
-const DEFAULT_RULES={rainWarn:0.3, rainStop:4, probWarn:60, coldWarn:4, coldStop:1, gustWarn:50, gustStop:75, visWarn:1000, visStop:200, heatWarn:33, rideSpeed:0};
+const DEFAULT_RULES={rainWarn:0.3, rainStop:4, probWarn:60, coldWarn:4, coldStop:1, gustWarn:50, gustStop:75, visWarn:1000, visStop:200, heatWarn:33, rideSpeed:0, pauseEvery:105, pauseLen:15};
 const RULE_FIELDS=[
   ["Pluie", [["rainWarn","Prudence dès","mm/h",0.1],["rainStop","Pas aujourd'hui dès","mm/h",0.5],["probWarn","Prudence si risque d'averse ≥","%",5]]],
   ["Froid (température de l'air)", [["coldWarn","Prudence à","°C ou moins",1],["coldStop","Pas aujourd'hui à","°C ou moins",1]]],
   ["Vent", [["gustWarn","Prudence si rafales ≥","km/h",5],["gustStop","Pas aujourd'hui si rafales ≥","km/h",5]]],
   ["Brouillard", [["visWarn","Prudence si visibilité <","m",100],["visStop","Pas aujourd'hui si visibilité <","m",50]]],
   ["Chaleur", [["heatWarn","Prudence dès","°C",1]]],
+  ["Pauses", [["pauseEvery","Une pause toutes les","min de route",15],["pauseLen","Durée d'une pause","min",5]]],
 ];
 const VERDICT=[{label:"Roule",cls:"go"},{label:"Prudence",cls:"warn"},{label:"Pas aujourd'hui",cls:"stop"}];
 function verdictOf(g){
@@ -472,15 +584,16 @@ function verdictOf(g){
   if(g.code>=95) add(2, g.code>=96?"Orage avec grêle":"Orage");
   if([56,57,66,67].includes(g.code)) add(2,"Pluie ou bruine verglaçante");
   if((g.code>=71&&g.code<=77)||g.code===85||g.code===86) add(2,"Neige");
-  if(fin(g.tMin)){ if(g.tMin<=R.coldStop) add(2,`${num(g.tMin,"°C")} : risque de verglas`); else if(g.tMin<=R.coldWarn) add(1,`${num(g.tMin,"°C")} : chaussée froide, plaques possibles`); }
+  const at=k=>g.many&&g[k]?` (${g[k]})`:"";
+  if(fin(g.tMin)){ if(g.tMin<=R.coldStop) add(2,`${num(g.tMin,"°C")}${at("coldAt")} : risque de verglas`); else if(g.tMin<=R.coldWarn) add(1,`${num(g.tMin,"°C")}${at("coldAt")} : chaussée froide, plaques possibles`); }
   if(fin(g.tMax)&&g.tMax>=R.heatWarn) add(1,`Forte chaleur (${num(g.tMax,"°C")}) : hydrate-toi`);
-  if(fin(g.rain)&&g.rain>=R.rainStop) add(2,`Forte pluie (${mm(g.rain)}/h)`);
-  else if(fin(g.rain)&&g.rain>=R.rainWarn) add(1,`Pluie (${mm(g.rain)}/h) : route glissante`);
+  if(fin(g.rain)&&g.rain>=R.rainStop) add(2,`Forte pluie (${mm(g.rain)}/h)${at("rainAt")}`);
+  else if(fin(g.rain)&&g.rain>=R.rainWarn) add(1,`Pluie (${mm(g.rain)}/h)${at("rainAt")} : route glissante`);
   else if(fin(g.prob)&&g.prob>=R.probWarn) add(1,`Risque d'averse ${num(g.prob," %")}`);
-  if(fin(g.gust)&&g.gust>=R.gustStop) add(2,`Rafales à ${num(g.gust)} km/h`);
-  else if(fin(g.gust)&&g.gust>=R.gustWarn) add(1,`Rafales à ${num(g.gust)} km/h`);
-  if(fin(g.vis)&&g.vis<R.visStop) add(2,`Brouillard épais (${visKm(g.vis)})`);
-  else if(fin(g.vis)&&g.vis<R.visWarn) add(1,`Brouillard (${visKm(g.vis)})`);
+  if(fin(g.gust)&&g.gust>=R.gustStop) add(2,`Rafales à ${num(g.gust)} km/h${at("gustAt")}`);
+  else if(fin(g.gust)&&g.gust>=R.gustWarn) add(1,`Rafales à ${num(g.gust)} km/h${at("gustAt")}`);
+  if(fin(g.vis)&&g.vis<R.visStop) add(2,`Brouillard épais (${visKm(g.vis)})${at("visAt")}`);
+  else if(fin(g.vis)&&g.vis<R.visWarn) add(1,`Brouillard (${visKm(g.vis)})${at("visAt")}`);
   out.sort((a,b)=>b.l-a.l);
   return {lvl, reasons:out};
 }
@@ -540,14 +653,100 @@ function outfitHtml(o, compact){
 }
 function loadRules(){ try{ const r=JSON.parse(localStorage.getItem(RULES_KEY)); if(r) return {...DEFAULT_RULES, ...r}; }catch(e){} return {...DEFAULT_RULES}; }
 function saveRules(){ try{ localStorage.setItem(RULES_KEY, JSON.stringify(state.rules)); return true; }catch(e){ toast("Enregistrement impossible sur cet appareil"); return false; } }
+/* ---------- sauvegarde ---------- */
+const BACKUP_KEY="rouleoupas.lastbackup.v1";
+function lastBackup(){ try{ return localStorage.getItem(BACKUP_KEY); }catch(e){ return null; } }
+function markBackup(){ try{ localStorage.setItem(BACKUP_KEY, new Date().toISOString()); }catch(e){} }
+function hasUserData(){ return state.gear.length>0 || state.routes.some(r=>isVoyage(r)? r.days.length>0 : ready(r)); }
+function needsBackup(){ const l=lastBackup(); return hasUserData() && (!l || Date.now()-new Date(l).getTime()>30*864e5); }
+function backupJson(){
+  return JSON.stringify({app:"roule-ou-pas", format:1, version:APP_VERSION, exportedAt:new Date().toISOString(),
+    routes:state.routes, gear:state.gear, rules:state.rules});
+}
+async function exportData(){
+  const name=`roule-ou-pas-${todayIso()}.json`;
+  let file=null;
+  try{ file=new File([backupJson()], name, {type:"application/json"}); }catch(e){}
+  if(file && navigator.share && navigator.canShare){
+    try{
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file], title:"Sauvegarde Roule ou pas"});
+        markBackup(); render(); toast("Sauvegarde exportée"); return;
+      }
+    }catch(e){ if(e && e.name==="AbortError") return; }
+  }
+  try{
+    const url=URL.createObjectURL(file||new Blob([backupJson()],{type:"application/json"}));
+    const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+    markBackup(); render(); toast("Sauvegarde téléchargée");
+  }catch(e){ toast("Export impossible : utilise le copier-coller"); }
+}
+async function copyData(){
+  const txt=backupJson();
+  try{ await navigator.clipboard.writeText(txt); markBackup(); render(); toast("Copié : colle-le dans une note ou un e-mail"); }
+  catch(e){ const ta=document.getElementById("bk-text"); if(ta){ ta.value=txt; ta.focus(); ta.select(); } toast("Texte sélectionné : copie-le"); }
+}
+function readBackup(text){
+  let d; try{ d=JSON.parse(text); }catch(e){ throw new Error("Ce texte n'est pas une sauvegarde lisible."); }
+  if(!d || d.app!=="roule-ou-pas" || !Array.isArray(d.routes)) throw new Error("Ce fichier ne vient pas de Roule ou pas.");
+  return d;
+}
+function stageImport(text){
+  try{ state.importPending=readBackup(text); state.importErr=""; }
+  catch(e){ state.importPending=null; state.importErr=e.message; }
+  render();
+}
+function applyImport(){
+  const d=state.importPending; if(!d) return;
+  state.routes=d.routes.filter(Boolean).map(migrate); if(!state.routes.length) state.routes.push(defaultRoute());
+  state.gear=Array.isArray(d.gear)?d.gear:[];
+  state.rules={...DEFAULT_RULES, ...(d.rules||{})};
+  const ok=save() & saveGear() & saveRules();
+  state.importPending=null; state.importErr="";
+  render(); toast(ok?"Sauvegarde restaurée":"Restauration incomplète : mémoire pleine");
+}
+function backupPanel(){
+  const last=lastBackup(), imp=state.importPending;
+  const nV=imp?imp.routes.filter(isVoyage).length:0, nT=imp?imp.routes.length-nV:0;
+  return `<div class="panel"><h3>Sauvegarde</h3>
+    <p class="hint">Tes trajets, ton équipement et tes réglages ne sont enregistrés que sur ce téléphone. Exporte-les dans Fichiers ou iCloud Drive pour pouvoir les restaurer après une réinstallation ou sur un autre iPhone.</p>
+    <p class="hint"><b>Dernière sauvegarde :</b> ${last?esc(new Date(last).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})):"jamais"}</p>
+    <div class="bar"><button class="btn btn-primary" id="bk-export">Exporter mes données</button><label class="btn btn-ghost" for="bk-file">Importer une sauvegarde</label></div>
+    <input type="file" id="bk-file" class="sr-file" accept=".json,application/json,text/plain">
+    ${imp?`<div class="import-box"><b>Restaurer cette sauvegarde ?</b>
+      <span class="hint">Sauvegarde du ${esc(imp.exportedAt?new Date(imp.exportedAt).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"?")} : ${nT} trajet${nT>1?"s":""}, ${nV} road trip${nV>1?"s":""}, ${(imp.gear||[]).length} équipement${(imp.gear||[]).length>1?"s":""}. Elle remplacera tout ce qui est sur ce téléphone.</span>
+      <div class="bar"><button class="btn btn-primary" id="bk-apply">Remplacer mes données</button><button class="btn btn-ghost" id="bk-cancel">Annuler</button></div></div>`:""}
+    ${state.importErr?`<p class="err">${esc(state.importErr)}</p>`:""}
+    <details class="more"><summary>Autre méthode : copier-coller</summary>
+      <div class="col">
+        <p class="hint">Copie tes données puis colle-les dans une note ou un e-mail à toi-même. Pour restaurer, colle le texte ci-dessous.</p>
+        <button class="btn btn-ghost" id="bk-copy">Copier mes données</button>
+        <textarea id="bk-text" placeholder="Colle ici le texte d'une sauvegarde" spellcheck="false"></textarea>
+        <button class="btn btn-ghost" id="bk-paste">Importer le texte collé</button>
+      </div></details>
+  </div>`;
+}
+function bindBackup(){
+  const $=id=>document.getElementById(id);
+  $("bk-export").onclick=exportData;
+  $("bk-copy").onclick=copyData;
+  $("bk-paste").onclick=()=>{ const v=$("bk-text").value.trim(); if(!v){ toast("Colle d'abord le texte de la sauvegarde"); return; } stageImport(v); };
+  $("bk-file").onchange=async e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; try{ stageImport(await f.text()); }catch(err){ state.importErr="Lecture du fichier impossible."; render(); } };
+  if($("bk-apply")) $("bk-apply").onclick=applyImport;
+  if($("bk-cancel")) $("bk-cancel").onclick=()=>{ state.importPending=null; render(); };
+}
+
 function renderRules(){
   const R=state.rules;
   app.innerHTML = `
     <header class="top"><h1 class="brand">Roule <span>ou pas</span></h1></header>
     <div class="stack">
+      ${backupPanel()}
       <div class="eyebrow">Seuils du verdict</div>
       <p class="hint">Valeurs les plus défavorables sur ta plage horaire et sur tout le trajet. Orage, neige et pluie verglaçante donnent toujours « Pas aujourd'hui ».</p>
       ${RULE_FIELDS.map(([title,fields])=>`<div class="panel"><h3>${esc(title)}</h3>
+        ${title==="Pauses"?`<p class="hint">Ajoutées aux heures de passage, pour que la météo corresponde au moment où tu passes vraiment. Mets 0 pour ne pas en compter.</p>`:""}
         ${fields.map(([k,lbl,unit,step])=>`<div class="rule"><label for="r-${k}">${esc(lbl)}</label>
           <span class="rule-in"><input type="number" inputmode="decimal" id="r-${k}" value="${R[k]}" step="${step}"><small>${esc(unit)}</small></span></div>`).join("")}
       </div>`).join("")}
@@ -555,15 +754,16 @@ function renderRules(){
         <p class="hint">Vitesse utilisée pour calculer le froid ressenti en roulant. Laisse 0 pour prendre la moyenne de chaque trajet.</p>
         <div class="rule"><label for="r-rideSpeed">Vitesse</label><span class="rule-in"><input type="number" inputmode="numeric" id="r-rideSpeed" value="${R.rideSpeed}" step="10" min="0"><small>km/h</small></span></div>
       </div>
-      <div class="bar"><button class="btn btn-primary" id="r-save">Enregistrer</button><button class="btn btn-ghost" id="r-reset">Valeurs par défaut</button></div>
+      <div class="bar"><button class="btn btn-primary" id="r-save">Enregistrer les réglages</button><button class="btn btn-ghost" id="r-reset">Valeurs par défaut</button></div>
     </div>
     ${tabsBar()}`;
-  bindTabs();
+  bindTabs(); bindBackup();
   document.getElementById("r-save").onclick=()=>{
     const next={...R};
-    for(const k of Object.keys(DEFAULT_RULES)){ const el=document.getElementById("r-"+k); const v=Number(String(el.value).replace(",",".")); if(el.value!=="" && Number.isFinite(v)) next[k]=v; }
+    for(const k of Object.keys(DEFAULT_RULES)){ const el=document.getElementById("r-"+k); if(!el) continue; const v=Number(String(el.value).replace(",",".")); if(el.value!=="" && Number.isFinite(v)) next[k]=v; }
     if(next.rainStop<next.rainWarn || next.gustStop<next.gustWarn || next.coldStop>next.coldWarn || next.visStop>next.visWarn){ toast("Le seuil « Pas aujourd'hui » doit être plus sévère que « Prudence »"); return; }
-    state.rules=next; if(saveRules()) toast("Seuils enregistrés");
+    if(next.pauseEvery>0 && next.pauseEvery<30){ toast("Mets au moins 30 min entre deux pauses, ou 0"); return; }
+    state.rules=next; if(saveRules()) toast("Réglages enregistrés");
   };
   document.getElementById("r-reset").onclick=()=>{ state.rules={...DEFAULT_RULES}; saveRules(); render(); toast("Valeurs par défaut rétablies"); };
 }
@@ -602,23 +802,77 @@ function cardHtml(route){
     </div>
     ${route.isDefault?heroWx(route):""}</button>`;
 }
+
+/* ---------- road trips : outils ---------- */
+function newDay(prev){
+  return migrateDay({date: prev ? addDays(prev.date,1) : addDays(todayIso(),1),
+    aller:{start:prev?prev.aller.start:"09:00", end:prev?prev.aller.end:"09:00"},
+    points: prev&&prev.points.length ? [{...prev.points.at(-1)}] : []});
+}
+function voyageTotals(v){ return v.days.filter(ready).reduce((s,d)=>{ const t=totals(d); return {km:s.km+t.km, min:s.min+t.min}; },{km:0,min:0}); }
+// carte d'ensemble : toutes les journées mises bout à bout
+function voyageComposite(v){
+  const pts=[], geom=[]; let allGeom=true;
+  v.days.filter(ready).forEach(d=>{
+    d.points.forEach(p=>{ const l=pts.at(-1); if(!l || l.lat!==p.lat || l.lon!==p.lon) pts.push(p); });
+    if(d.geom && d.geomKey===keyOf(d.points)) geom.push(...d.geom); else allGeom=false;
+  });
+  return {id:v.id+"-all", composite:true, points:pts, geom:allGeom&&geom.length?geom:null, geomKey:allGeom&&geom.length?keyOf(pts):""};
+}
+function dayRange(v){
+  const ds=v.days.map(d=>d.date).sort(); if(!ds.length) return "";
+  const f=d=>fmtDate(d,{day:"numeric",month:"short"});
+  return ds.length===1 ? fmtDate(ds[0],{weekday:"long",day:"numeric",month:"long"}) : `du ${f(ds[0])} au ${f(ds.at(-1))}`;
+}
+function dayVerdict(d){
+  if(!ready(d)) return {cls:"", label:"À compléter"};
+  const w=getWx(d,d.date);
+  if(w.past) return {cls:"", label:"Passé"};
+  if(w.later) return {cls:"", label:"Météo le "+fmtDate(w.later,{day:"numeric",month:"numeric"})};
+  if(!w.data) return {cls:"", label:w.error?"Météo indispo.":"Météo…"};
+  const V=VERDICT[verdictOf(sampleTrip(d,false,d.aller,w.data).agg).lvl];
+  return {cls:V.cls, label:V.label};
+}
+function voyageCard(v){
+  const t=voyageTotals(v), comp=voyageComposite(v);
+  const ends=[v.days[0]?.points[0]?.name, ...v.days.map(d=>d.points.at(-1)?.name)].filter(Boolean);
+  return `<button class="card" data-voyage="${esc(v.id)}">
+    ${mapBox(comp,"card")}
+    <div class="meta">
+      <div class="name">${esc(v.name||"Road trip")}</div>
+      <div class="path">${esc(ends.join(" → ")||"Ajoute tes journées")}</div>
+      <div class="chips"><span class="chip accent">Road trip</span><span class="chip">${v.days.length} jour${v.days.length>1?"s":""}</span>${v.days.length?`<span class="chip">${esc(dayRange(v))}</span>`:""}${t.km?`<span class="chip">${fmtKm(t.km)}</span>`:""}</div>
+      ${v.days.length?`<div class="vdots">${v.days.map((d,i)=>{ const dv=dayVerdict(d); return `<span class="vbadge ${dv.cls}">J${i+1} · ${esc(dv.label)}</span>`; }).join("")}</div>`:""}
+    </div></button>`;
+}
+
 function renderList(){
-  const def=state.routes.filter(x=>x.isDefault), others=state.routes.filter(x=>!x.isDefault);
+  const trips=state.routes.filter(x=>!isVoyage(x)), voyages=state.routes.filter(isVoyage);
+  const def=trips.filter(x=>x.isDefault), others=trips.filter(x=>!x.isDefault);
   app.innerHTML = `
     <header class="top"><h1 class="brand">Roule <span>ou pas</span></h1></header>
     <div class="stack">
       ${def.length?`<div class="eyebrow">Trajet par défaut</div><div class="list">${def.map(cardHtml).join("")}</div>`:""}
-      <div class="eyebrow">Autres itinéraires · ${others.length}</div>
-      ${others.length?`<div class="list">${others.map(cardHtml).join("")}</div>`:`<p class="hint">Balades du week-end, road trips : crée-les avec le bouton en bas.</p>`}
+      <div class="eyebrow">Road trips · ${voyages.length}</div>
+      ${voyages.length?`<div class="list">${voyages.map(voyageCard).join("")}</div>`:`<p class="hint">Prépare un voyage sur plusieurs jours avec le bouton « + Road trip » : une journée par étape, avec la météo de chaque jour.</p>`}
+      <div class="eyebrow">Autres trajets · ${others.length}</div>
+      ${others.length?`<div class="list">${others.map(cardHtml).join("")}</div>`:`<p class="hint">Balades d'une journée : crée-les avec « + Trajet ».</p>`}
+      ${needsBackup()?`<button class="nudge" id="nudge">Pense à sauvegarder tes données → Réglages</button>`:""}
     </div>
-    <button class="btn btn-primary fab" id="new">+ Nouvel itinéraire</button>
+    <div class="fab-row"><button class="btn btn-ghost" id="new">+ Trajet</button><button class="btn btn-primary" id="newv">+ Road trip</button></div>
     ${tabsBar()}`;
   bindTabs();
   app.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{
     const r=state.routes.find(x=>x.id===b.dataset.open);
     ready(r) ? openDetail(r.id) : openEditor(r.id);
   });
+  app.querySelectorAll("[data-voyage]").forEach(b=>b.onclick=()=>{
+    const v=state.routes.find(x=>x.id===b.dataset.voyage);
+    v.days.length ? openVoyage(v.id) : openVoyageEditor(v.id);
+  });
   document.getElementById("new").onclick=()=>openEditor(null);
+  document.getElementById("newv").onclick=()=>openVoyageEditor(null);
+  const n=document.getElementById("nudge"); if(n) n.onclick=()=>{ state.tab="reglages"; render(); window.scrollTo(0,0); };
 }
 
 /* ---------- vue trajet (météo détaillée) ---------- */
@@ -632,12 +886,12 @@ function renderDetail(force){
   if(!r){ state.view="list"; return renderList(); }
   const t=todayIso(), days=[...Array(7)].map((_,i)=>addDays(t,i));
   const w=getWx(r,state.day,force);
-  let body;
+  let body, marks=null;
   if(w.data){
-    const at=new Date(w.data.at);
     body = wxBlock("Aller",r,false,r.aller,w.data,state.day,true)
       + (r.retour.on? wxBlock("Retour",r,true,r.retour,w.data,state.day,true) : "")
-      + `<p class="hint">Prévisions Open-Meteo${w.data.at?` de ${fmtTime(at.getHours()*60+at.getMinutes())}`:""}${w.loading?" · mise à jour…":""}${w.error?" · mise à jour impossible":""}. Valeurs les plus défavorables sur ta plage horaire, pluie en mm par heure.</p>`;
+      + wxFoot(w);
+    marks = wxMarks(r,false,r.aller,w.data);
   } else body = `<p class="${w.error?"err":"hint"}">${w.error?"Météo indisponible. Vérifie ta connexion puis touche Actualiser.":"Chargement de la météo…"}</p>`;
   const tt=totals(r);
   app.innerHTML = `
@@ -651,7 +905,7 @@ function renderDetail(force){
       <div class="days" role="group" aria-label="Jour du trajet">
         ${days.map((d,i)=>`<button class="day" data-day="${d}" aria-pressed="${d===state.day}">${i<2?dayLabel(d):dayLabel(d,true)}<small>${Number(d.slice(8))}/${Number(d.slice(5,7))}</small></button>`).join("")}
       </div>
-      ${mapBox(r,"detail")}
+      ${mapBox(r,"detail",marks)}
       <div class="panel">${body}</div>
       <div class="bar"><button class="btn btn-ghost" id="edit">Modifier l'itinéraire</button></div>
     </div>`;
@@ -659,6 +913,127 @@ function renderDetail(force){
   document.getElementById("refresh").onclick=()=>{ const r=state.routes.find(x=>x.id===state.detailId); if(r) getWx(r,state.day,true); render(); };
   document.getElementById("edit").onclick=()=>openEditor(r.id);
   app.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>{state.day=b.dataset.day;render();});
+}
+
+/* ---------- vue road trip ---------- */
+function openVoyage(id){
+  const v=state.routes.find(x=>x.id===id); if(!v) return;
+  const i=v.days.findIndex(d=>d.date>=todayIso());
+  state.vId=id; state.vday=i>=0?i:0; state.view="voyage";
+  render(); window.scrollTo(0,0);
+}
+function renderVoyage(force){
+  const v=state.routes.find(x=>x.id===state.vId);
+  if(!v){ state.view="list"; return renderList(); }
+  if(state.vday>=v.days.length) state.vday=0;
+  const t=voyageTotals(v), d=v.days[state.vday];
+  let body="", marks=null;
+  if(!d) body=`<p class="hint">Ajoute une première journée à ce road trip.</p>`;
+  else if(!ready(d)) body=`<p class="hint">Cette journée n'a pas encore de départ et d'arrivée.</p>`;
+  else{
+    const w=getWx(d,d.date,force);
+    if(w.past) body=`<p class="hint">Cette journée est passée.</p>`;
+    else if(w.later) body=`<p class="hint">Les prévisions du ${esc(fmtDate(d.date,{weekday:"long",day:"numeric",month:"long"}))} arriveront à partir du ${esc(fmtDate(w.later,{day:"numeric",month:"long"}))}, 16 jours avant. D'ici là, prépare ta tenue avec les normales de saison.</p>`;
+    else if(w.data){
+      const nuit=d.points.at(-1).name;
+      body=wxBlock(`Jour ${state.vday+1}`, d, false, d.aller, w.data, d.date, true)
+        + `<p class="hint">Nuitée : <b>${esc(nuit)}</b></p>` + wxFoot(w);
+      marks=wxMarks(d,false,d.aller,w.data);
+    }
+    else body=`<p class="${w.error?"err":"hint"}">${w.error?"Météo indisponible. Vérifie ta connexion puis touche Actualiser.":"Chargement de la météo…"}</p>`;
+  }
+  app.innerHTML=`
+    <header class="top">
+      <button class="icon-btn" id="back" aria-label="Retour">←</button>
+      <div class="eyebrow">${v.days.length} jour${v.days.length>1?"s":""} · ${fmtKm(t.km)}</div>
+      <button class="icon-btn" id="refresh" aria-label="Actualiser la météo">↻</button>
+    </header>
+    <div class="stack">
+      <div><h2>${esc(v.name||"Road trip")}</h2><p class="hint">${esc(dayRange(v))}</p></div>
+      <div class="dayrows" role="group" aria-label="Journées">${v.days.map((x,i)=>{
+        const dv=dayVerdict(x), tl=ready(x)?timeline(x,false,toMin(x.aller.start)):null;
+        return `<button class="dayrow" data-vday="${i}" aria-pressed="${i===state.vday}"><div>
+          <div class="t">J${i+1} · ${esc(fmtDate(x.date))}</div>
+          <div class="s">${tl?`${esc(x.points[0].name)} → ${esc(x.points.at(-1).name)}`:"À compléter"}</div>
+          ${tl?`<div class="s">${fmtKm(totals(x).km)} · ${fmtTime(tl[0].min)} → ${fmtTime(tl.at(-1).min)}</div>`:""}</div>
+          <span class="vbadge ${dv.cls}">${esc(dv.label)}</span></button>`; }).join("")}</div>
+      ${d&&ready(d)?mapBox(d,"detail",marks):""}
+      <div class="panel">${body}</div>
+      <div class="bar"><button class="btn btn-ghost" id="edit">Modifier le road trip</button></div>
+    </div>`;
+  document.getElementById("back").onclick=()=>{ state.view="list"; render(); };
+  document.getElementById("refresh").onclick=()=>{ if(d&&ready(d)) getWx(d,d.date,true); render(); };
+  document.getElementById("edit").onclick=()=>openVoyageEditor(v.id);
+  app.querySelectorAll("[data-vday]").forEach(b=>b.onclick=()=>{ state.vday=+b.dataset.vday; render(); });
+}
+
+/* ---------- éditeur de road trip ---------- */
+function upsertVoyage(v){
+  if(!v.name.trim() && v.days.some(ready)){ const r=v.days.filter(ready); v.name=`${r[0].points[0].name} → ${r.at(-1).points.at(-1).name}`; }
+  const copy=JSON.parse(JSON.stringify(v)), i=state.routes.findIndex(r=>r.id===v.id);
+  if(i>=0) state.routes[i]=copy; else state.routes.push(copy);
+  state.vNew=false;
+  return save();
+}
+function openVoyageEditor(id){
+  const src=id?state.routes.find(r=>r.id===id):null;
+  state.vdraft = src ? JSON.parse(JSON.stringify(src)) : {id:"v"+Date.now().toString(36), kind:"voyage", name:"", days:[]};
+  state.vNew=!src; state.confirmDelete=false; state.view="voyage-edit";
+  render(); window.scrollTo(0,0);
+}
+function renderVoyageEditor(){
+  const v=state.vdraft, t=voyageTotals(v);
+  app.innerHTML=`
+    <header class="top">
+      <button class="icon-btn" id="back" aria-label="Retour">←</button>
+      <div class="eyebrow">${state.vNew?"Nouveau road trip":"Modifier le road trip"}</div>
+      <span style="width:40px"></span>
+    </header>
+    <div class="stack">
+      <div class="field"><label for="vname">Nom du road trip</label>
+        <input type="text" id="vname" placeholder="Ex. : Norvège, fjords et cols" value="${esc(v.name)}" maxlength="60"></div>
+      <div class="panel">
+        <h2>Journées</h2>
+        ${v.days.length?`<div class="dayrows">${v.days.map((d,i)=>{ const tl=ready(d)?timeline(d,false,toMin(d.aller.start)):null;
+          return `<button class="dayrow" data-eday="${i}"><div>
+            <div class="t">J${i+1} · ${esc(fmtDate(d.date,{weekday:"long",day:"numeric",month:"long"}))}</div>
+            <div class="s">${tl?`${esc(d.points.map(p=>p.name).join(" → "))}`:"À compléter"}</div>
+            ${tl?`<div class="s">${fmtKm(totals(d).km)} · départ ${fmtTime(tl[0].min)} · arrivée ${fmtTime(tl.at(-1).min)}${tl.at(-1).pauses?` · ${tl.at(-1).pauses} pause${tl.at(-1).pauses>1?"s":""}`:""}</div>`:""}
+            </div><span class="vbadge">Modifier</span></button>`; }).join("")}</div>`
+          :`<p class="hint">Une journée = un départ, des étapes et le lieu où tu dors. La journée suivante repart automatiquement de là.</p>`}
+        <button class="btn btn-primary" id="addday">+ Ajouter une journée</button>
+        ${t.km?`<div class="summary"><div><b>${fmtKm(t.km)}</b><span>Au total</span></div><div><b>${fmtDur(t.min)}</b><span>De route</span></div></div>`:""}
+      </div>
+      <div class="bar">
+        <button class="btn btn-primary" id="vsave">Enregistrer</button>
+        ${state.vNew?"":`<button class="btn btn-danger" id="vdel">Supprimer</button>`}
+      </div>
+      ${state.confirmDelete?`<div class="confirm"><span>Supprimer le road trip « ${esc(v.name||"Sans nom")} » et toutes ses journées ? C'est définitif.</span>
+        <div class="bar"><button class="btn btn-danger" id="vdelyes">Oui, supprimer</button><button class="btn btn-ghost" id="vdelno">Annuler</button></div></div>`:""}
+    </div>`;
+  const $=id=>document.getElementById(id);
+  $("vname").oninput=e=>v.name=e.target.value;
+  $("back").onclick=()=>{ const saved=state.routes.some(r=>r.id===v.id); state.vdraft=null; saved&&v.days.length ? openVoyage(v.id) : (state.view="list", render()); };
+  $("addday").onclick=()=>editDay(-1);
+  app.querySelectorAll("[data-eday]").forEach(b=>b.onclick=()=>editDay(+b.dataset.eday));
+  $("vsave").onclick=()=>{
+    if(!v.days.length){ toast("Ajoute au moins une journée"); return; }
+    if(upsertVoyage(v)){ state.vdraft=null; openVoyage(v.id); toast("Road trip enregistré"); }
+  };
+  if($("vdel")) $("vdel").onclick=()=>{ state.confirmDelete=true; render(); };
+  if($("vdelyes")) $("vdelyes").onclick=()=>{ state.routes=state.routes.filter(r=>r.id!==v.id); save(); state.vdraft=null; state.view="list"; render(); toast("Road trip supprimé"); };
+  if($("vdelno")) $("vdelno").onclick=()=>{ state.confirmDelete=false; render(); };
+}
+function editDay(i){
+  const v=state.vdraft;
+  state.dayCtx={i};
+  state.draft = i>=0 ? JSON.parse(JSON.stringify(v.days[i])) : newDay(v.days.at(-1));
+  state.isNew = i<0; state.confirmDelete=false; state.routingErr=false; state.view="edit";
+  render(); window.scrollTo(0,0);
+}
+function leaveDay(msg){
+  state.dayCtx=null; state.draft=null; state.confirmDelete=false; state.view="voyage-edit";
+  render(); window.scrollTo(0,0); if(msg) toast(msg);
 }
 
 /* ---------- vue éditeur ---------- */
@@ -672,6 +1047,7 @@ function openEditor(id){
 }
 function searchLabel(d){
   const n=d.points.length;
+  if(state.dayCtx) return n===0 ? "Point de départ de la journée" : n===1 ? "Étape ou lieu de la nuitée" : "Ajouter une étape (la dernière = nuitée)";
   if(d.isDefault && n===0) return "Adresse de la maison";
   if(d.isDefault && n===1) return "Adresse du boulot";
   return n? "Ajouter une étape" : "Point de départ";
@@ -682,7 +1058,8 @@ function slotPanel(d, which){
   let out="";
   if(ok){
     const a=timeline(d,reverse,s), b=timeline(d,reverse,e);
-    out=`<div class="slot-out">Arrivée à <b>${esc(a.at(-1).pt.name)}</b> ${toMin(slot.start)===toMin(slot.end)?"vers":"entre"} <b>${fmtSlot(a.at(-1).min,b.at(-1).min).replace("–","</b> et <b>")}</b></div>`;
+    const np=a.at(-1).pauses, len=state.rules.pauseLen;
+    out=`<div class="slot-out">Arrivée à <b>${esc(a.at(-1).pt.name)}</b> ${toMin(slot.start)===toMin(slot.end)?"vers":"entre"} <b>${fmtSlot(a.at(-1).min,b.at(-1).min).replace("–","</b> et <b>")}</b>${np?`, avec ${np} pause${np>1?"s":""} de ${len} min`:""}</div>`;
   }
   return `<div class="slot">
     <div class="row2">
@@ -691,13 +1068,14 @@ function slotPanel(d, which){
     </div>${out}</div>`;
 }
 function renderEditor(){
-  const d=state.draft, n=d.points.length, ok=n>=2;
+  const d=state.draft, n=d.points.length, ok=n>=2, day=!!state.dayCtx;
+  const dayNum = day ? (state.dayCtx.i>=0 ? state.dayCtx.i+1 : state.vdraft.days.length+1) : 0;
   const a1=ok?timeline(d,false,toMin(d.aller.start)):null, a2=ok?timeline(d,false,toMin(d.aller.end)):null;
   const steps = d.points.map((pt,i)=>{
     const end=i===0||i===n-1;
     const sub = ok ? (i===0 ? `départ ${fmtSlot(a1[0].min,a2[0].min)}` : `${fmtKm(a1[i].km)} · passage ${fmtSlot(a1[i].min,a2[i].min)}`) : "";
     return `<li class="step${end?" end":""}">
-      <div class="dot">${i===0?"D":i===n-1?"A":i}</div>
+      <div class="dot">${i===0?"D":i===n-1?(day?"N":"A"):i}</div>
       <div class="txt"><div class="city">${esc(pt.name)}</div>
         <div class="sub">${esc(pt.ctx||"")}${sub?" · "+sub:""}</div></div>
       <div class="acts">
@@ -707,33 +1085,15 @@ function renderEditor(){
       </div></li>`;
   }).join("");
   const t=ok?totals(d):null, est=ok&&isEstimate(d);
-  app.innerHTML = `
-    <header class="top">
-      <button class="icon-btn" id="back" aria-label="Retour">←</button>
-      <div class="eyebrow">${state.isNew?"Nouvel itinéraire":"Modifier l'itinéraire"}</div>
-      <span style="width:40px"></span>
-    </header>
-    <div class="stack">
-      <div class="field"><label for="name">Nom</label>
-        <input type="text" id="name" placeholder="Ex. : Sortie du dimanche" value="${esc(d.name)}" maxlength="60"></div>
-
-      <div class="panel">
-        <h2>Étapes de l'aller</h2>
-        ${n? `<ol class="steps">${steps}</ol>` : `<p class="hint">${d.isDefault?"Commence par l'adresse de ta maison, puis celle du boulot.":"Ajoute au moins un départ et une arrivée."}</p>`}
-        <div class="field"><label for="q">${searchLabel(d)}</label>
-          <input type="search" id="q" placeholder="Ex. : 12 rue Victor Hugo, Amiens" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"></div>
-        <button class="btn btn-ghost" id="gps" type="button">Ma position actuelle</button>
-        <div id="res"></div>
-        ${ok?mapBox(d,"edit"):""}
-        ${ok?`<div class="summary">
-          <div><b>${fmtKm(t.km)}</b><span>Distance</span></div>
-          <div><b>${est?"≈ ":""}${fmtDur(t.min)}</b><span>Durée par la route</span></div></div>
-          ${state.routing?`<p class="hint">Calcul de l'itinéraire routier…</p>`:
-            state.routingErr?`<p class="err">Calcul routier indisponible : durée estimée. Rouvre l'itinéraire avec du réseau pour la corriger.</p>`:
-            `<p class="hint">Durées calculées par la route, sans bouchons ni pauses.</p>`}`:""}
-      </div>
-
-      <div class="panel">
+  const top = day
+    ? `<div class="field"><label for="dday">Date de la journée ${dayNum}</label><input type="date" id="dday" value="${esc(d.date)}"></div>`
+    : `<div class="field"><label for="name">Nom</label>
+        <input type="text" id="name" placeholder="Ex. : Sortie du dimanche" value="${esc(d.name)}" maxlength="60"></div>`;
+  const hintEmpty = day ? "Départ de la journée, tes étapes, puis l'endroit où tu dors : la carte et la météo suivent." :
+    d.isDefault ? "Commence par l'adresse de ta maison, puis celle du boulot." : "Ajoute au moins un départ et une arrivée.";
+  const timing = day
+    ? `<div class="panel"><h3>Départ</h3>${slotPanel(d,"aller")}</div>`
+    : `<div class="panel">
         <h3>Aller</h3>
         ${slotPanel(d,"aller")}
         <div class="panel-head">
@@ -742,33 +1102,61 @@ function renderEditor(){
         </div>
         ${d.retour.on?slotPanel(d,"retour"):""}
       </div>
+      <label class="switch"><input type="checkbox" id="def" ${d.isDefault?"checked":""}> Trajet par défaut (affiché en premier)</label>`;
+  app.innerHTML = `
+    <header class="top">
+      <button class="icon-btn" id="back" aria-label="Retour">←</button>
+      <div class="eyebrow">${day?`Road trip · journée ${dayNum}`:state.isNew?"Nouvel itinéraire":"Modifier l'itinéraire"}</div>
+      <span style="width:40px"></span>
+    </header>
+    <div class="stack">
+      ${top}
 
-      <label class="switch"><input type="checkbox" id="def" ${d.isDefault?"checked":""}> Trajet par défaut (affiché en premier)</label>
+      <div class="panel">
+        <h2>${day?"Étapes de la journée":"Étapes de l'aller"}</h2>
+        ${n? `<ol class="steps">${steps}</ol>` : `<p class="hint">${hintEmpty}</p>`}
+        <div class="field"><label for="q">${searchLabel(d)}</label>
+          <input type="search" id="q" placeholder="${day?"Ex. : Geiranger, Trollstigen":"Ex. : 12 rue Victor Hugo, Amiens"}" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"></div>
+        <button class="btn btn-ghost" id="gps" type="button">Ma position actuelle</button>
+        <div id="res"></div>
+        ${ok?mapBox(d,"edit"):""}
+        ${ok?`<div class="summary">
+          <div><b>${fmtKm(t.km)}</b><span>Distance</span></div>
+          <div><b>${est?"≈ ":""}${fmtDur(t.min)}</b><span>Durée par la route</span></div></div>
+          ${state.routing?`<p class="hint">Calcul de l'itinéraire routier…</p>`:
+            state.routingErr?`<p class="err">Calcul routier indisponible : durée estimée. Rouvre l'itinéraire avec du réseau pour la corriger.</p>`:
+            `<p class="hint">Durée de route sans bouchons ; les pauses sont ajoutées aux heures de passage.</p>`}`:""}
+      </div>
+
+      ${timing}
 
       <div class="bar">
-        <button class="btn btn-primary" id="save">Enregistrer</button>
-        ${state.isNew?"":`<button class="btn btn-danger" id="del">Supprimer</button>`}
+        <button class="btn btn-primary" id="save">${day?"Valider la journée":"Enregistrer"}</button>
+        ${state.isNew?"":`<button class="btn btn-danger" id="del">${day?"Supprimer la journée":"Supprimer"}</button>`}
       </div>
-      ${state.confirmDelete?`<div class="confirm"><span>Supprimer « ${esc(d.name||"Sans nom")} » ? C'est définitif.</span>
+      ${state.confirmDelete?`<div class="confirm"><span>${day?`Supprimer la journée ${dayNum} ?`:`Supprimer « ${esc(d.name||"Sans nom")} » ? C'est définitif.`}</span>
         <div class="bar"><button class="btn btn-danger" id="delyes">Oui, supprimer</button><button class="btn btn-ghost" id="delno">Annuler</button></div></div>`:""}
     </div>`;
 
   const $=id=>document.getElementById(id);
-  $("back").onclick=()=>{const back=!state.isNew&&ready(d)&&state.routes.some(r=>r.id===d.id);state.draft=null;back?openDetail(d.id):(state.view="list",render());};
-  $("name").oninput=e=>d.name=e.target.value;
+  $("back").onclick = day ? ()=>leaveDay() : ()=>{const back=!state.isNew&&ready(d)&&state.routes.some(r=>r.id===d.id);state.draft=null;back?openDetail(d.id):(state.view="list",render());};
+  if($("name")) $("name").oninput=e=>d.name=e.target.value;
+  if($("dday")) $("dday").onchange=e=>{ if(e.target.value) d.date=e.target.value; };
   ["aller","retour"].forEach(w=>{
     const s=$(w+"-s"), e=$(w+"-e"); if(!s) return;
     s.onchange=()=>{d[w].start=s.value||d[w].start; if(toMin(d[w].end)<toMin(d[w].start)) d[w].end=d[w].start; render();};
     e.onchange=()=>{d[w].end=e.value||d[w].end; if(toMin(d[w].end)<toMin(d[w].start)) d[w].start=d[w].end; render();};
   });
-  $("ret").onchange=e=>{d.retour.on=e.target.checked;render();};
-  $("def").onchange=e=>{d.isDefault=e.target.checked;};
+  if($("ret")) $("ret").onchange=e=>{d.retour.on=e.target.checked;render();};
+  if($("def")) $("def").onchange=e=>{d.isDefault=e.target.checked;};
   app.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>{const i=+b.dataset.up;[d.points[i-1],d.points[i]]=[d.points[i],d.points[i-1]];render();});
   app.querySelectorAll("[data-down]").forEach(b=>b.onclick=()=>{const i=+b.dataset.down;[d.points[i+1],d.points[i]]=[d.points[i],d.points[i+1]];render();});
   app.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{d.points.splice(+b.dataset.del,1);render();});
   $("save").onclick=saveDraft;
   if($("del")) $("del").onclick=()=>{state.confirmDelete=true;render();};
-  if($("delyes")) $("delyes").onclick=()=>{state.routes=state.routes.filter(r=>r.id!==d.id);save();state.draft=null;state.view="list";render();toast("Itinéraire supprimé");};
+  if($("delyes")) $("delyes").onclick = day
+    ? ()=>{ state.vdraft.days.splice(state.dayCtx.i,1); upsertVoyage(state.vdraft); leaveDay("Journée supprimée"); }
+    : ()=>{state.routes=state.routes.filter(r=>r.id!==d.id);save();state.draft=null;state.view="list";render();toast("Itinéraire supprimé");};
   if($("delno")) $("delno").onclick=()=>{state.confirmDelete=false;render();};
 
   let timer; const q=$("q");
@@ -846,6 +1234,14 @@ async function search(text){
 function saveDraft(){
   const d=state.draft;
   if(d.points.length<2){toast("Ajoute au moins un départ et une arrivée");return;}
+  if(state.dayCtx){
+    const v=state.vdraft, i=state.dayCtx.i;
+    if(i>=0) v.days[i]=d; else v.days.push(d);
+    v.days.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+    upsertVoyage(v);
+    leaveDay("Journée enregistrée");
+    return;
+  }
   if(!d.name.trim()) d.name=d.points[0].name+(d.retour.on?" ↔ ":" → ")+d.points.at(-1).name;
   if(d.isDefault) state.routes.forEach(r=>{ if(r.id!==d.id) r.isDefault=false; });
   const i=state.routes.findIndex(r=>r.id===d.id);
@@ -970,6 +1366,8 @@ function renderView(){
   if(state.view==="edit") return renderEditor();
   if(state.view==="detail") return renderDetail();
   if(state.view==="gear-edit") return renderGearEdit();
+  if(state.view==="voyage") return renderVoyage();
+  if(state.view==="voyage-edit") return renderVoyageEditor();
   return state.tab==="equipement" ? renderGear() : state.tab==="reglages" ? renderRules() : renderList();
 }
 function render(){
@@ -983,7 +1381,7 @@ function render(){
       <p class="err">${esc(String(e&&e.message||e))}</p>
       <button class="btn btn-primary" id="err-home">Revenir à l'accueil</button></div>`;
     const b=document.getElementById("err-home");
-    if(b) b.onclick=()=>{ state.view="list"; state.tab="trajets"; render(); };
+    if(b) b.onclick=()=>{ state.view="list"; state.tab="trajets"; state.dayCtx=null; state.draft=null; render(); };
     return;
   }
   if(newVersion){ app.insertAdjacentHTML("afterbegin", updateBanner()); bindUpdate(); }
