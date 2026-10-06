@@ -320,7 +320,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.04-7";
+const APP_VERSION="2026.10.06-1";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -438,12 +438,12 @@ const visKm = v => !Number.isFinite(v) ? "—" : v>=10000 ? "10+ km" : (v/1000).
 function wxBlock(label, route, reverse, slot, data, date, detailed){
   const s=sampleTrip(route,reverse,slot,data.hourly), g=s.agg;
   const past = date===todayIso() && nowMin()>s.end;
+  const v=verdictOf(g), o=outfitOf(g), ride=rideFeel(g.tMin, avgSpeed(route));
   const cells=`<div class="wx-grid">
     <div class="wx-cell"><span>Temp.</span><b>${num(g.tMin,"°")}${Math.round(g.tMax)!==Math.round(g.tMin)&&Number.isFinite(g.tMax)?" / "+num(g.tMax,"°"):""}</b><small>à moto ≈ ${num(ride,"°")}</small></div>
     <div class="wx-cell"><span>Pluie</span><b>${mm(g.rain)}</b><small>${num(g.prob," %")} risque</small></div>
     <div class="wx-cell"><span>Rafales</span><b>${num(g.gust)}</b><small>vent ${num(g.wind)} km/h</small></div>
     <div class="wx-cell"><span>Visib.</span><b>${visKm(g.vis)}</b><small>min.</small></div></div>`;
-  const v=verdictOf(g), o=outfitOf(g), ride=rideFeel(g.tMin, avgSpeed(route));
   const flags=verdictHtml(v,!detailed)+outfitHtml(o,!detailed);
   const table = detailed ? `<div class="pts"><table><thead><tr><th>Passage</th><th>Temp.</th><th>Pluie</th><th>Rafales</th><th>Ciel</th></tr></thead><tbody>
     ${s.per.map(p=>`<tr><td>${esc(p.pt.name)}<small>${fmtSlot(p.m1,p.m2)}</small></td><td>${num(p.tMin,"°")}<small>${num(p.feel,"°")} ress.</small></td><td>${mm(p.rain)}<small>${num(p.prob," %")}</small></td><td>${num(p.gust)}<small>km/h</small></td><td>${esc(SKY[p.code]??"—")}</td></tr>`).join("")}
@@ -974,7 +974,18 @@ function renderView(){
 }
 function render(){
   state.pendingMaps=[];
-  renderView();
+  try{ renderView(); }
+  catch(e){
+    console.error(e);
+    app.innerHTML=`<header class="top"><h1 class="brand">Roule <span>ou pas</span></h1></header>
+      <div class="panel"><h3>Un écran n'a pas pu s'afficher</h3>
+      <p class="hint">Tes trajets et ton équipement sont conservés. Reviens à l'accueil ; si le problème revient, envoie ce message à Claude :</p>
+      <p class="err">${esc(String(e&&e.message||e))}</p>
+      <button class="btn btn-primary" id="err-home">Revenir à l'accueil</button></div>`;
+    const b=document.getElementById("err-home");
+    if(b) b.onclick=()=>{ state.view="list"; state.tab="trajets"; render(); };
+    return;
+  }
   if(newVersion){ app.insertAdjacentHTML("afterbegin", updateBanner()); bindUpdate(); }
   if(state.view==="list") app.insertAdjacentHTML("beforeend", `<p class="version">Version ${APP_VERSION}</p>`);
   mountMaps();
