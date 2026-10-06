@@ -468,7 +468,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.06-8";
+const APP_VERSION="2026.10.06-9";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -658,7 +658,7 @@ function wxFoot(w){
 
 /* ---------- verdict & tenue ---------- */
 const RULES_KEY="rouleoupas.rules.v1";
-const DEFAULT_RULES={rainWarn:0.3, rainStop:4, probWarn:60, coldWarn:4, coldStop:1, gustWarn:50, gustStop:75, visWarn:1000, visStop:200, heatWarn:33, rideSpeed:0, pauseEvery:105, pauseLen:15, tank:19, cons:5.5, fuelMargin:50};
+const DEFAULT_RULES={rainWarn:0.3, rainStop:4, probWarn:60, coldWarn:4, coldStop:1, gustWarn:50, gustStop:75, visWarn:1000, visStop:200, heatWarn:33, rideSpeed:0, pauseEvery:105, pauseLen:15, tank:19, cons:5.5, fuelMargin:50, fuelType:"e10", priceManual:0, curRange:0, curRangeDay:""};
 const RULE_FIELDS=[
   ["Pluie", [["rainWarn","Prudence dès","mm/h",0.1],["rainStop","Pas aujourd'hui dès","mm/h",0.5],["probWarn","Prudence si risque d'averse ≥","%",5]]],
   ["Froid (température de l'air)", [["coldWarn","Prudence à","°C ou moins",1],["coldStop","Pas aujourd'hui à","°C ou moins",1]]],
@@ -666,7 +666,6 @@ const RULE_FIELDS=[
   ["Brouillard", [["visWarn","Prudence si visibilité <","m",100],["visStop","Pas aujourd'hui si visibilité <","m",50]]],
   ["Chaleur", [["heatWarn","Prudence dès","°C",1]]],
   ["Pauses", [["pauseEvery","Une pause toutes les","min de route",15],["pauseLen","Durée d'une pause","min",5]]],
-  ["Carburant", [["tank","Réservoir","litres",0.5],["cons","Consommation","L/100 km",0.1],["fuelMargin","Marge à garder","km",10]]],
 ];
 const VERDICT=[{label:"Roule",cls:"go"},{label:"Prudence",cls:"warn"},{label:"Pas aujourd'hui",cls:"stop"}];
 function verdictOf(g){
@@ -764,6 +763,60 @@ function outfitHtml(o, compact){
 }
 function loadRules(){ try{ const r=JSON.parse(localStorage.getItem(RULES_KEY)); if(r) return {...DEFAULT_RULES, ...r}; }catch(e){} return {...DEFAULT_RULES}; }
 function saveRules(){ try{ localStorage.setItem(RULES_KEY, JSON.stringify(state.rules)); return true; }catch(e){ toast("Enregistrement impossible sur cet appareil"); return false; } }
+/* ---------- carburant : prix et coût ---------- */
+const FUELS={e10:{label:"SP95-E10", field:"e10_prix"}, sp95:{label:"SP95", field:"sp95_prix"}, sp98:{label:"SP98", field:"sp98_prix"}};
+const PRICE_KEY="rouleoupas.price.v1";
+let fuelPrice=null; try{ fuelPrice=JSON.parse(localStorage.getItem(PRICE_KEY)); }catch(e){}
+let pricePending=false;
+// prix moyen à la pompe (données officielles prix-carburants) autour de la maison, sinon moyenne nationale
+async function refreshPrice(force){
+  const type=state.rules.fuelType in FUELS ? state.rules.fuelType : "e10";
+  if(pricePending) return;
+  if(!force && fuelPrice && fuelPrice.type===type && Date.now()-fuelPrice.at<12*3600e3) return;
+  pricePending=true;
+  const f=FUELS[type].field, base="https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records";
+  const ask=async where=>{ const r=await fetch(`${base}?select=${encodeURIComponent(`avg(${f}) as p, count(${f}) as n`)}&limit=1${where?"&where="+encodeURIComponent(where):""}`); if(!r.ok) throw new Error(r.status); const x=(await r.json()).results?.[0]; return x&&x.p?x:null; };
+  try{
+    const h=homePoint(); let x=null, where="France";
+    if(h){ x=await ask(`distance(geom, geom'POINT(${h.lon.toFixed(4)} ${h.lat.toFixed(4)})', 25km) and ${f} is not null`); where=`autour de ${h.name}`; if(!x||x.n<3){ x=null; where="France"; } }
+    if(!x) x=await ask(`${f} is not null`);
+    if(x){ fuelPrice={type, price:+x.p.toFixed(3), n:x.n, where, at:Date.now()}; try{ localStorage.setItem(PRICE_KEY, JSON.stringify(fuelPrice)); }catch(e){} }
+  }catch(e){}
+  finally{ pricePending=false; if(!editing()) render(); }
+}
+const pricePerL = () => state.rules.priceManual>0 ? state.rules.priceManual : (fuelPrice && fuelPrice.type===state.rules.fuelType ? fuelPrice.price : null);
+const fmtEur = v => v>=100 ? Math.round(v).toLocaleString("fr-FR")+" €" : v.toFixed(2).replace(".",",")+" €";
+const fmtL = v => (v<10?v.toFixed(1):Math.round(v).toString()).replace(".",",")+" L";
+// km parcourus à moto (les traversées en ferry ne consomment rien)
+const roadKm = r => ready(r) ? legsFor(r,false).filter(l=>!l.ferry).reduce((s,l)=>s+l.km,0) : 0;
+function fuelCost(km){ const L=km*state.rules.cons/100, p=pricePerL(); return {L, eur:p?L*p:null}; }
+const costChip = km => { const c=fuelCost(km); return c.eur!=null&&km>0 ? `<span class="chip">≈ ${fmtEur(c.eur)}</span>` : ""; };
+const tripKm = r => isVoyage(r) ? r.days.filter(ready).reduce((s,d)=>s+roadKm(d),0) : roadKm(r)*(r.retour&&r.retour.on?2:1);
+// autonomie affichée sur la moto, saisie aujourd'hui ou hier : utilisée pour un départ aujourd'hui ou demain
+function currentRange(date){
+  const R=state.rules, t=todayIso();
+  if(!(R.curRange>0) || !R.curRangeDay || R.curRangeDay<addDays(t,-1)) return null;
+  return date && date>addDays(t,1) ? null : R.curRange;
+}
+function fuelSettingsPanel(){
+  const R=state.rules, p=pricePerL(), fresh=fuelPrice && fuelPrice.type===R.fuelType;
+  return `<div class="panel"><h3>Carburant</h3>
+    <p class="hint">Sert à l'autonomie, aux pleins conseillés et au coût de chaque trajet. Mets la consommation réelle de ta moto chargée (en duo avec bagages, elle augmente).</p>
+    <div class="rule"><label for="r-fuelType">Carburant</label><span class="rule-in"><select id="r-fuelType" style="width:140px">${Object.entries(FUELS).map(([k,f])=>`<option value="${k}" ${k===R.fuelType?"selected":""}>${f.label}</option>`).join("")}</select></span></div>
+    <div class="rule"><label for="r-tank">Réservoir</label><span class="rule-in"><input type="number" inputmode="decimal" id="r-tank" value="${R.tank}" step="0.5"><small>litres</small></span></div>
+    <div class="rule"><label for="r-cons">Consommation</label><span class="rule-in"><input type="number" inputmode="decimal" id="r-cons" value="${R.cons}" step="0.1"><small>L/100 km</small></span></div>
+    <div class="rule"><label for="r-fuelMargin">Marge à garder</label><span class="rule-in"><input type="number" inputmode="numeric" id="r-fuelMargin" value="${R.fuelMargin}" step="10"><small>km</small></span></div>
+    <div class="rule"><label for="r-curRange">Autonomie actuelle (affichée sur la moto)</label><span class="rule-in"><input type="number" inputmode="numeric" id="r-curRange" value="${R.curRange||""}" placeholder="plein" step="10"><small>km</small></span></div>
+    <p class="hint">${currentRange()?`Saisie ${R.curRangeDay===todayIso()?"aujourd'hui":"hier"} : utilisée pour tes départs d'aujourd'hui et de demain, puis l'appli repart du plein fait.`:"Vide = départ le plein fait. Valable aujourd'hui et demain."}</p>
+    <div class="rule"><label for="r-priceManual">Prix au litre</label><span class="rule-in"><input type="number" inputmode="decimal" id="r-priceManual" value="${R.priceManual||""}" placeholder="${fresh?fuelPrice.price.toFixed(2):"auto"}" step="0.01"><small>€/L</small></span></div>
+    <p class="hint">${R.priceManual>0?`Prix saisi à la main : ${fmtEur(R.priceManual)}/L. Vide la case pour reprendre le prix réel.`
+      : fresh?`Prix réel ${FUELS[R.fuelType].label} ${fuelPrice.where} : ${fuelPrice.price.toFixed(3).replace(".",",")} €/L (moyenne de ${fuelPrice.n} stations, données officielles du ${new Date(fuelPrice.at).toLocaleDateString("fr-FR",{day:"numeric",month:"long"})}).`
+      : pricePending?"Recherche du prix réel…":"Prix réel indisponible pour le moment : saisis-en un."}
+      ${p?"":""}</p>
+    ${R.priceManual>0?"":`<button class="btn btn-ghost" id="r-price">Actualiser le prix</button>`}
+  </div>`;
+}
+
 /* ---------- sauvegarde ---------- */
 const BACKUP_KEY="rouleoupas.lastbackup.v1";
 function lastBackup(){ try{ return localStorage.getItem(BACKUP_KEY); }catch(e){ return null; } }
@@ -858,10 +911,10 @@ function renderRules(){
       <p class="hint">Valeurs les plus défavorables sur ta plage horaire et sur tout le trajet. Orage, neige et pluie verglaçante donnent toujours « Pas aujourd'hui ».</p>
       ${RULE_FIELDS.map(([title,fields])=>`<div class="panel"><h3>${esc(title)}</h3>
         ${title==="Pauses"?`<p class="hint">Ajoutées aux heures de passage, pour que la météo corresponde au moment où tu passes vraiment. Mets 0 pour ne pas en compter.</p>`:""}
-        ${title==="Carburant"?`<p class="hint">Sert à calculer ton autonomie et les pleins à faire. Mets la consommation réelle de ta moto chargée (en duo avec bagages, elle augmente).</p>`:""}
         ${fields.map(([k,lbl,unit,step])=>`<div class="rule"><label for="r-${k}">${esc(lbl)}</label>
           <span class="rule-in"><input type="number" inputmode="decimal" id="r-${k}" value="${R[k]}" step="${step}"><small>${esc(unit)}</small></span></div>`).join("")}
       </div>`).join("")}
+      ${fuelSettingsPanel()}
       <div class="panel"><h3>Ressenti à moto</h3>
         <p class="hint">Vitesse utilisée pour calculer le froid ressenti en roulant. Laisse 0 pour prendre la moyenne de chaque trajet.</p>
         <div class="rule"><label for="r-rideSpeed">Vitesse</label><span class="rule-in"><input type="number" inputmode="numeric" id="r-rideSpeed" value="${R.rideSpeed}" step="10" min="0"><small>km/h</small></span></div>
@@ -870,13 +923,19 @@ function renderRules(){
     </div>
     ${tabsBar()}`;
   bindTabs(); bindBackup();
+  const rp=document.getElementById("r-price"); if(rp) rp.onclick=()=>{ refreshPrice(true); render(); };
   document.getElementById("r-save").onclick=()=>{
     const next={...R};
-    for(const k of Object.keys(DEFAULT_RULES)){ const el=document.getElementById("r-"+k); if(!el) continue; const v=Number(String(el.value).replace(",",".")); if(el.value!=="" && Number.isFinite(v)) next[k]=v; }
+    for(const k of Object.keys(DEFAULT_RULES)){ if(k==="fuelType"||k==="curRangeDay") continue; const el=document.getElementById("r-"+k); if(!el) continue; const v=Number(String(el.value).replace(",",".")); if(el.value!=="" && Number.isFinite(v)) next[k]=v; }
+    next.fuelType=document.getElementById("r-fuelType").value;
+    const cr=document.getElementById("r-curRange").value, pm=document.getElementById("r-priceManual").value;
+    if(cr===""){ next.curRange=0; next.curRangeDay=""; } else if(+cr!==R.curRange || !R.curRangeDay){ next.curRangeDay=todayIso(); }
+    if(pm==="") next.priceManual=0;
     if(next.rainStop<next.rainWarn || next.gustStop<next.gustWarn || next.coldStop>next.coldWarn || next.visStop>next.visWarn){ toast("Le seuil « Pas aujourd'hui » doit être plus sévère que « Prudence »"); return; }
     if(next.pauseEvery>0 && next.pauseEvery<30){ toast("Mets au moins 30 min entre deux pauses, ou 0"); return; }
     if(!(next.tank>0) || !(next.cons>0)){ toast("Indique la taille du réservoir et la consommation"); return; }
-    state.rules=next; if(saveRules()) toast("Réglages enregistrés");
+    const typeChanged=next.fuelType!==R.fuelType;
+    state.rules=next; if(saveRules()){ toast("Réglages enregistrés"); if(typeChanged) refreshPrice(true); render(); }
   };
   document.getElementById("r-reset").onclick=()=>{ state.rules={...DEFAULT_RULES}; saveRules(); render(); toast("Valeurs par défaut rétablies"); };
 }
@@ -910,7 +969,7 @@ function cardHtml(route){
       </div>
       <div class="chips">
         ${route.isDefault?'<span class="chip accent">Par défaut</span>':''}
-        ${t?`<span class="chip">${fmtKm(t.km)}</span><span class="chip">${isEstimate(route)?"≈ ":""}${fmtDur(t.min)}</span>`:'<span class="chip todo">À compléter</span>'}
+        ${t?`<span class="chip">${fmtKm(t.km)}</span><span class="chip">${isEstimate(route)?"≈ ":""}${fmtDur(t.min)}</span>${costChip(tripKm(route))}`:'<span class="chip todo">À compléter</span>'}
       </div>
     </div>
     ${route.isDefault?heroWx(route):""}</button>`;
@@ -954,7 +1013,7 @@ function voyageCard(v){
     <div class="meta">
       <div class="name">${esc(v.name||"Road trip")}</div>
       <div class="path">${esc(ends.join(" → ")||"Ajoute tes journées")}</div>
-      <div class="chips"><span class="chip accent">Road trip</span><span class="chip">${v.days.length} jour${v.days.length>1?"s":""}</span>${v.days.length?`<span class="chip">${esc(dayRange(v))}</span>`:""}${t.km?`<span class="chip">${fmtKm(t.km)}</span>`:""}</div>
+      <div class="chips"><span class="chip accent">Road trip</span><span class="chip">${v.days.length} jour${v.days.length>1?"s":""}</span>${v.days.length?`<span class="chip">${esc(dayRange(v))}</span>`:""}${t.km?`<span class="chip">${fmtKm(t.km)}</span>${costChip(tripKm(v))}`:""}</div>
       ${v.days.length?`<div class="vdots">${v.days.map((d,i)=>{ const dv=dayVerdict(d); return `<span class="vbadge ${dv.cls}">J${i+1} · ${esc(dv.label)}</span>`; }).join("")}</div>`:""}
     </div></button>`;
 }
@@ -1104,7 +1163,7 @@ function getAnalysis(route){
   return {data:c||null, loading:!!an.pending[k], error:!!an.err[k]};
 }
 const autonomy = () => Math.max(20, state.rules.tank/state.rules.cons*100 - state.rules.fuelMargin);
-function fuelPlan(route, data){
+function fuelPlan(route, data, startRange){
   const g=route.geom, c=geomCum(g), pts=route.points;
   const ferries=legsFor(route,false).map((l,i)=>l.ferry?[kmOn(g,c,pts[i].lat,pts[i].lon), kmOn(g,c,pts[i+1].lat,pts[i+1].lon)].sort((a,b)=>a-b):null).filter(Boolean);
   const road = k => k - ferries.reduce((s,[a,b])=>s+Math.max(0,Math.min(k,b)-a),0);
@@ -1112,29 +1171,34 @@ function fuelPlan(route, data){
   const st=data.stations.map(x=>({...x, rk:road(x.km)})).sort((a,b)=>a.rk-b.rk);
   const marks=[0,...st.map(x=>x.rk),total]; let gap={len:0,from:0,to:0};
   for(let i=1;i<marks.length;i++) if(marks[i]-marks[i-1]>gap.len) gap={len:marks[i]-marks[i-1], from:marks[i-1], to:marks[i]};
-  const stops=[]; let pos=0, stuck=false;
-  while(total-pos>A){
-    const reach=st.filter(x=>x.rk>pos+5 && x.rk<=pos+A);
+  const R0 = startRange>0 ? Math.max(0, startRange-state.rules.fuelMargin) : A;
+  const stops=[]; let pos=0, range=R0, stuck=false;
+  while(total-pos>range){
+    const reach=st.filter(x=>x.rk>pos+(pos?5:0) && x.rk<=pos+range);
     if(!reach.length){ stuck=true; break; }
-    const pick=reach.at(-1); stops.push(pick); pos=pick.rk;
+    const pick=reach.at(-1); stops.push(pick); pos=pick.rk; range=A;
   }
-  return {total, A, stops, gap, stuck, count:st.length};
+  return {total, A, R0, stops, gap, stuck, count:st.length, fromCurrent:startRange>0};
 }
-function infoPanels(route, date, startMin){
+function infoPanels(route, date, startMin, opts={}){
   if(!ready(route)) return "";
+  const cur = opts.first===false ? null : currentRange(date);
+  const km1=roadKm(route), kmAll=km1*(opts.roundTrip?2:1), cost=fuelCost(kmAll), p=pricePerL();
+  const costLine = `<p><b>Carburant ≈ ${cost.eur!=null?fmtEur(cost.eur):"—"}</b> <span class="hint">· ${fmtL(cost.L)} pour ${fmtInt(kmAll)} km${opts.roundTrip?" (aller-retour)":""}${p?` à ${p.toFixed(2).replace(".",",")} €/L`:" · prix à saisir dans Réglages"}${legsFor(route,false).some(l=>l.ferry)?", ferries non compris":""}</span></p>`;
   const tl=timeline(route,false,startMin), legs=legsFor(route,false);
   const ferries=legs.map((l,i)=>l.ferry?{from:route.points[i], to:route.points[i+1], min:l.min, at:tl[i].min}:null).filter(Boolean);
   const a=getAnalysis(route);
   // carburant
   let fuel;
   if(a.waitGeom) fuel=`<p class="hint">Calcul du tracé en cours…</p>`;
+  else if(!a.data && cur && cur-state.rules.fuelMargin<km1) fuel=`<div class="flag">Ton autonomie actuelle (${fmtInt(cur)} km) ne couvre pas ces ${fmtInt(km1)} km : prévois un plein. Recherche des stations…</div>`;
   else if(!a.data) fuel=`<p class="${a.error?"err":"hint"}">${a.error?"Recherche des stations impossible pour le moment.":"Recherche des stations-service le long de la route…"}</p>`;
   else{
-    const f=fuelPlan(route,a.data);
-    fuel=`<p class="hint">Autonomie ≈ ${fmtInt(f.A)} km (${String(state.rules.tank).replace(".",",")} L à ${String(state.rules.cons).replace(".",",")} L/100, marge ${state.rules.fuelMargin} km), départ le plein fait. ${f.count} station${f.count>1?"s":""} trouvée${f.count>1?"s":""} à moins de 1,5 km de la route.</p>
+    const f=fuelPlan(route,a.data,cur);
+    fuel=`<p class="hint">${f.fromCurrent?`Départ avec ${fmtInt(cur)} km d'autonomie (affichée sur la moto), puis ≈ ${fmtInt(f.A)} km par plein`:`Autonomie ≈ ${fmtInt(f.A)} km (${String(state.rules.tank).replace(".",",")} L à ${String(state.rules.cons).replace(".",",")} L/100, marge ${state.rules.fuelMargin} km), départ le plein fait`}. ${f.count} station${f.count>1?"s":""} trouvée${f.count>1?"s":""} à moins de 1,5 km de la route.</p>
       ${f.gap.len>f.A?`<div class="flag">Aucune station sur ${fmtInt(f.gap.len)} km (km ${fmtInt(f.gap.from)} → ${fmtInt(f.gap.to)}) : plus que ton autonomie. Prévois un bidon ou un détour.</div>`
         : f.gap.len>f.A*0.8?`<div class="flag">Plus long trou sans station : ${fmtInt(f.gap.len)} km (km ${fmtInt(f.gap.from)} → ${fmtInt(f.gap.to)}). Ne laisse pas passer le plein d'avant.</div>`:""}
-      ${f.total<=f.A?`<p><b>Pas besoin de plein</b> sur ces ${fmtInt(f.total)} km.</p>`
+      ${f.total<=f.R0?`<p><b>Pas besoin de plein</b> sur ces ${fmtInt(f.total)} km${opts.roundTrip&&f.total*2>f.R0?" (mais l'aller-retour le dépasse : fais le plein avant le retour)":""}.</p>`
         :`<div class="navlist">${f.stops.map((x,i)=>`<a class="navbtn" href="${wazeUrl(x)}" target="_blank" rel="noopener"><span>Plein ${i+1} · ${esc(x.name)} · km ${fmtInt(x.rk)}</span><small>Waze</small></a>`).join("")}</div>
           ${f.stuck?`<p class="err">Impossible de tenir sans plein supplémentaire hors de la route.</p>`:""}`}`;
   }
@@ -1150,7 +1214,7 @@ function infoPanels(route, date, startMin){
       ${links.length?`<div class="linkrow"><span class="hint">État des routes en direct :</span>${links.map(([,n,u])=>`<a href="${u}" target="_blank" rel="noopener">${n}</a>`).join("")}</div>`:""}
       <p class="hint">Fermetures saisonnières d'après OpenStreetMap : les dates réelles dépendent de la neige.</p>
     </div>` : "";
-  return `<div class="panel"><h3>Carburant</h3>${fuel}</div>${routesPanel}`;
+  return `<div class="panel"><h3>Carburant</h3>${costLine}${fuel}</div>${routesPanel}`;
 }
 
 /* ---------- partage avec le groupe ---------- */
@@ -1184,7 +1248,8 @@ function prepareShare(r){
 function shareSummary(r){
   if(isVoyage(r)){
     const t=voyageTotals(r);
-    return `${r.name} · ${dayRange(r)} · ${fmtKm(t.km)}\n`+r.days.map((d,i)=>{
+    const ce=fuelCost(tripKm(r)).eur;
+    return `${r.name} · ${dayRange(r)} · ${fmtKm(t.km)}${ce!=null?` · carburant ≈ ${fmtEur(ce)} par moto`:""}\n`+r.days.map((d,i)=>{
       if(!ready(d)) return `J${i+1} ${fmtDate(d.date)} : à compléter`;
       const tl=timeline(d,false,toMin(d.aller.start)), dv=dayVerdict(d);
       return `J${i+1} ${fmtDate(d.date)} : ${d.points[0].name} → ${d.points.at(-1).name}, ${fmtKm(totals(d).km)}, départ ${fmtTime(tl[0].min)}${dv.cls?" · "+dv.label:""}`;
@@ -1280,7 +1345,7 @@ function renderDetail(force){
       <div class="panel">${body}</div>
       ${navPanel(r,false,r.retour.on?"Navigation · aller":"Navigation")}
       ${r.retour.on?navPanel(r,true,"Navigation · retour"):""}
-      ${infoPanels(r, state.day, toMin(r.aller.start))}
+      ${infoPanels(r, state.day, toMin(r.aller.start), {roundTrip:r.retour.on})}
       <div class="bar">${shareButton(r)}<button class="btn btn-ghost" id="edit">Modifier l'itinéraire</button></div>
     </div>`;
   document.getElementById("back").onclick=()=>{state.view="list";render();};
@@ -1320,7 +1385,7 @@ function renderVoyage(force){
   app.innerHTML=`
     <header class="top">
       <button class="icon-btn" id="back" aria-label="Retour">←</button>
-      <div class="eyebrow">${v.days.length} jour${v.days.length>1?"s":""} · ${fmtKm(t.km)}</div>
+      <div class="eyebrow">${v.days.length} jour${v.days.length>1?"s":""} · ${fmtKm(t.km)}${fuelCost(tripKm(v)).eur!=null?" · ≈ "+fmtEur(fuelCost(tripKm(v)).eur):""}</div>
       <button class="icon-btn" id="refresh" aria-label="Actualiser la météo">↻</button>
     </header>
     <div class="stack">
@@ -1330,13 +1395,13 @@ function renderVoyage(force){
         return `<button class="dayrow" data-vday="${i}" aria-pressed="${i===state.vday}"><div>
           <div class="t">J${i+1} · ${esc(fmtDate(x.date))}</div>
           <div class="s">${tl?`${esc(x.points[0].name)} → ${esc(x.points.at(-1).name)}`:"À compléter"}</div>
-          ${tl?`<div class="s">${fmtKm(totals(x).km)} · ${fmtTime(tl[0].min)} → ${fmtTime(tl.at(-1).min)}</div>`:""}</div>
+          ${tl?`<div class="s">${fmtKm(totals(x).km)} · ${fmtTime(tl[0].min)} → ${fmtTime(tl.at(-1).min)}${fuelCost(roadKm(x)).eur!=null?" · ≈ "+fmtEur(fuelCost(roadKm(x)).eur):""}</div>`:""}</div>
           <span class="vbadge ${dv.cls}">${esc(dv.label)}</span></button>`; }).join("")}</div>
       ${d&&ready(d)?mapBox(d,"detail",marks):""}
       ${d&&d.note?`<div class="note">${esc(d.note)}</div>`:""}
       <div class="panel">${body}</div>
       ${d?navPanel(d,false,`Navigation · jour ${state.vday+1}`):""}
-      ${d&&ready(d)?infoPanels(d, d.date, toMin(d.aller.start)):""}
+      ${d&&ready(d)?infoPanels(d, d.date, toMin(d.aller.start), {first:state.vday===0}):""}
       <div class="bar">${shareButton(v)}<button class="btn btn-ghost" id="edit">Modifier le road trip</button></div>
     </div>`;
   document.getElementById("back").onclick=()=>{ state.view="list"; render(); };
@@ -1525,7 +1590,7 @@ function renderLoop(){
         return `<div class="panel loopcard">
           <div class="head"><div><h3>Boucle ${esc(r.dir)}</h3><div class="via">${esc(via)}</div></div>${i===0&&allWx?`<span class="best">Meilleure météo</span>`:""}</div>
           ${mapBox(r,"card")}
-          <div class="chips"><span class="chip">${fmtKm(t.km)}</span><span class="chip">${fmtDur(t.min)}</span>${x.v?`<span class="vbadge ${VERDICT[x.v.lvl].cls}">${VERDICT[x.v.lvl].label}</span>`:`<span class="vbadge">Météo…</span>`}</div>
+          <div class="chips"><span class="chip">${fmtKm(t.km)}</span><span class="chip">${fmtDur(t.min)}</span>${costChip(roadKm(r))}${x.v?`<span class="vbadge ${VERDICT[x.v.lvl].cls}">${VERDICT[x.v.lvl].label}</span>`:`<span class="vbadge">Météo…</span>`}</div>
           ${x.v?`<div class="hint">${esc(x.v.reasons.length?x.v.reasons.slice(0,2).map(z=>z.t).join(" · "):"Conditions sèches et douces")} · ${num(x.g.tMin,"°")} à ${num(x.g.tMax,"°")}</div>`:""}
           <button class="btn btn-primary" data-pickloop="${esc(r.id)}">Choisir cette boucle</button>
         </div>`; }).join("")}
@@ -2165,6 +2230,7 @@ function render(){
 }
 state.rules=loadRules();
 render();
+refreshPrice();
 checkUpdate();
 checkIncoming();
 window.addEventListener("hashchange",checkIncoming);
