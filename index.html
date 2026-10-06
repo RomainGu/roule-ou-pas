@@ -468,7 +468,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.06-7";
+const APP_VERSION="2026.10.06-8";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -1025,7 +1025,7 @@ function bindNav(){
 }
 
 /* ---------- carburant, ferries, routes fermées ---------- */
-const AN_KEY="rouleoupas.analysis.v1";
+const AN_KEY="rouleoupas.analysis.v2";
 const an={cache:{}, pending:{}, err:{}};
 try{ an.cache=JSON.parse(localStorage.getItem(AN_KEY))||{}; }catch(e){}
 function saveAn(){
@@ -1042,11 +1042,12 @@ function lineOf(g, c, stepKm, max){
   return out.map(p=>p[0].toFixed(5)+","+p[1].toFixed(5)).join(",");
 }
 // position (km le long du tracé) du point du tracé le plus proche
-function kmOn(g, c, lat, lon){
+function kmOn(g, c, lat, lon, withDist){
   const k=Math.cos(lat*Math.PI/180); let bi=0, bd=1e9;
   for(let i=0;i<g.length;i++){ const d=(g[i][0]-lat)**2+((g[i][1]-lon)*k)**2; if(d<bd){ bd=d; bi=i; } }
-  return c[bi];
+  return withDist ? {km:c[bi], dist:Math.sqrt(bd)*111.32} : c[bi];
 }
+const periodDays = p => ((p.b*31+p.bd)-(p.a*31+p.ad)+372)%372;
 const MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
 const MOIS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 // « no @ (Nov 1 - Apr 30) », « no @ Dec-May » → période de fermeture
@@ -1073,14 +1074,19 @@ async function fetchAnalysis(route){
     if(t.amenity==="fuel"){ stations.push({km, name:(t.brand||t.name||"Station").slice(0,40), lat:+lat.toFixed(5), lon:+lon.toFixed(5)}); continue; }
     const cond=t["motorcycle:conditional"]||t["motor_vehicle:conditional"]||t["motorcar:conditional"]||t["vehicle:conditional"]||t["access:conditional"]||"";
     const p=closedPeriod(cond); if(!p) continue;
+    // une route voisine qui ne fait que croiser le trajet a son centre loin du tracé : on l'ignore
+    if(kmOn(g,c,lat,lon,true).dist>2) continue;
     raw.push({km, name:(t.name||t.ref||"Route de montagne").slice(0,50), p, lat:+lat.toFixed(5), lon:+lon.toFixed(5)});
   }
   // un même col apparaît en plusieurs tronçons (et ponts) : on garde un nom par période et par zone
   raw.sort((a,b)=>a.km-b.km);
   const closures=[];
   for(const x of raw){
-    const same=closures.find(y=>Math.abs(y.km-x.km)<25 && y.p.a===x.p.a && y.p.b===x.p.b);
-    if(!same) closures.push(x); else if(nameScore(x.name)>nameScore(same.name)) Object.assign(same,{name:x.name, km:x.km, lat:x.lat, lon:x.lon});
+    // même route, ou fermetures à moins de 25 km (un col, ses ponts, ses accès) : une seule alerte, avec la période la plus longue
+    const same=closures.find(y=>(y.name===x.name && Math.abs(y.km-x.km)<80) || Math.abs(y.km-x.km)<25);
+    if(!same){ closures.push(x); continue; }
+    const longer=periodDays(x.p)-periodDays(same.p);
+    if(longer>0 || (longer===0 && nameScore(x.name)>nameScore(same.name))) Object.assign(same,{name:x.name, p:x.p, km:x.km, lat:x.lat, lon:x.lon});
   }
   const seen=new Set(), st=stations.sort((a,b)=>a.km-b.km).filter(x=>{ const k=x.name+"|"+Math.round(x.km*2); if(seen.has(k)) return false; seen.add(k); return true; });
   return {at:Date.now(), stations:st, closures};
