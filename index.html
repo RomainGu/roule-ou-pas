@@ -468,7 +468,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.06-9";
+const APP_VERSION="2026.10.06-10";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -764,7 +764,7 @@ function outfitHtml(o, compact){
 function loadRules(){ try{ const r=JSON.parse(localStorage.getItem(RULES_KEY)); if(r) return {...DEFAULT_RULES, ...r}; }catch(e){} return {...DEFAULT_RULES}; }
 function saveRules(){ try{ localStorage.setItem(RULES_KEY, JSON.stringify(state.rules)); return true; }catch(e){ toast("Enregistrement impossible sur cet appareil"); return false; } }
 /* ---------- carburant : prix et coût ---------- */
-const FUELS={e10:{label:"SP95-E10", field:"e10_prix"}, sp95:{label:"SP95", field:"sp95_prix"}, sp98:{label:"SP98", field:"sp98_prix"}};
+const FUELS={e10:{label:"SP95-E10", field:"e10_prix"}, sp95:{label:"SP95", field:"sp95_prix"}, sp98:{label:"SP98", field:"sp98_prix"}, e85:{label:"E85 (bioéthanol)", field:"e85_prix"}};
 const PRICE_KEY="rouleoupas.price.v1";
 let fuelPrice=null; try{ fuelPrice=JSON.parse(localStorage.getItem(PRICE_KEY)); }catch(e){}
 let pricePending=false;
@@ -802,7 +802,8 @@ function fuelSettingsPanel(){
   const R=state.rules, p=pricePerL(), fresh=fuelPrice && fuelPrice.type===R.fuelType;
   return `<div class="panel"><h3>Carburant</h3>
     <p class="hint">Sert à l'autonomie, aux pleins conseillés et au coût de chaque trajet. Mets la consommation réelle de ta moto chargée (en duo avec bagages, elle augmente).</p>
-    <div class="rule"><label for="r-fuelType">Carburant</label><span class="rule-in"><select id="r-fuelType" style="width:140px">${Object.entries(FUELS).map(([k,f])=>`<option value="${k}" ${k===R.fuelType?"selected":""}>${f.label}</option>`).join("")}</select></span></div>
+    <div class="rule"><label for="r-fuelType">Carburant</label><span class="rule-in"><select id="r-fuelType" style="width:170px">${Object.entries(FUELS).map(([k,f])=>`<option value="${k}" ${k===R.fuelType?"selected":""}>${f.label}</option>`).join("")}</select></span></div>
+    ${R.fuelType==="e85"?`<p class="hint">E85 : seulement si ta moto a un boîtier homologué. La consommation grimpe d'environ 25 % : mets ta conso réelle à l'E85 juste en dessous, l'autonomie et les pleins en tiennent compte.</p>`:""}
     <div class="rule"><label for="r-tank">Réservoir</label><span class="rule-in"><input type="number" inputmode="decimal" id="r-tank" value="${R.tank}" step="0.5"><small>litres</small></span></div>
     <div class="rule"><label for="r-cons">Consommation</label><span class="rule-in"><input type="number" inputmode="decimal" id="r-cons" value="${R.cons}" step="0.1"><small>L/100 km</small></span></div>
     <div class="rule"><label for="r-fuelMargin">Marge à garder</label><span class="rule-in"><input type="number" inputmode="numeric" id="r-fuelMargin" value="${R.fuelMargin}" step="10"><small>km</small></span></div>
