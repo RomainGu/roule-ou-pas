@@ -29,6 +29,7 @@
   --bg:#14191e; --surface:#1f262d; --ink:#e8ecef; --muted:#94a0ab; --line:#313a43;
   --accent:#f5c518; --accent-ink:#14191e; --road:#2a323a; --road-ink:#e8ecef; --danger:#e0655a; --warn:#f0a050; --ok:#4cc38a; color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);
   padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);min-height:100vh;
@@ -201,6 +202,8 @@ input[type=date]{width:100%;min-width:0;background:var(--surface);border:1px sol
 .navlist{display:flex;flex-direction:column;gap:8px}
 .navbtn{display:flex;justify-content:space-between;align-items:center;gap:10px;text-decoration:none;color:var(--ink);background:var(--bg);border-radius:10px;padding:11px 12px;font-weight:600}
 .navbtn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navbtn.done{opacity:.55}
+.navnext{display:flex;padding:15px 16px;font-size:16px;text-align:center}
 .navbtn small{flex:0 0 auto;font-weight:700;color:var(--accent-ink);background:var(--accent);border-radius:6px;padding:4px 8px}
 a.btn{text-decoration:none;color:var(--ink)}
 .modes{display:flex;flex-direction:column;gap:8px}
@@ -450,7 +453,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.06-4";
+const APP_VERSION="2026.10.06-5";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -977,14 +980,30 @@ function gmapsUrl(pts){
   const f=p=>`${p.lat.toFixed(5)},${p.lon.toFixed(5)}`, mids=pts.slice(1,-1).slice(0,9);
   return `https://www.google.com/maps/dir/?api=1&origin=${f(pts[0])}&destination=${f(pts.at(-1))}${mids.length?`&waypoints=${encodeURIComponent(mids.map(f).join("|"))}`:""}&travelmode=driving`;
 }
+// progression Waze : l'appli retient la prochaine étape de chaque trajet (remise à zéro chaque jour)
+const NAV_KEY="rouleoupas.nav.v1";
+let navProg={}; try{ navProg=JSON.parse(localStorage.getItem(NAV_KEY))||{}; }catch(e){}
+function navGet(k){ const p=navProg[k]; return p && p.day===todayIso() ? p.i : 0; }
+function navSet(k,i){ navProg[k]={i, day:todayIso()}; try{ localStorage.setItem(NAV_KEY, JSON.stringify(navProg)); }catch(e){} }
 function navPanel(route, reverse, title){
   if(!ready(route)) return "";
-  const pts = reverse ? route.points.slice().reverse() : route.points;
+  const pts = reverse ? route.points.slice().reverse() : route.points, stops=pts.slice(1);
+  const key = route.id+(reverse?":retour":""), next=Math.min(navGet(key), stops.length);
+  const ferry = i => (reverse?pts[i].ferry:stops[i].ferry)>0;
+  const done = next>=stops.length;
   return `<div class="panel"><h3>${esc(title||"Navigation")}</h3>
-    <p class="hint">Waze ne prend qu'une destination à la fois : à chaque arrêt, touche l'étape suivante. Google Maps reçoit toute la journée avec ses étapes${pts.length>11?" (les 9 premières)":""}.</p>
-    <div class="navlist">${pts.slice(1).map((p,i)=>`<a class="navbtn" href="${wazeUrl(p)}" target="_blank" rel="noopener"><span>${i+1}. ${esc(p.name)}${(reverse?pts[i].ferry:p.ferry)>0?" · ferry":""}</span><small>Waze</small></a>`).join("")}</div>
-    <a class="btn btn-ghost" href="${gmapsUrl(pts)}" target="_blank" rel="noopener">Tout le trajet dans Google Maps</a>
+    ${done?`<p class="hint"><b>Trajet terminé.</b> Toutes les étapes ont été ouvertes dans Waze.</p>`
+      :`<a class="btn btn-primary navnext" href="${wazeUrl(stops[next])}" target="_blank" rel="noopener" data-navkey="${esc(key)}" data-navi="${next}">Waze → ${next+1}/${stops.length} · ${esc(stops[next].name)}${ferry(next)?" (ferry)":""}</a>
+      <p class="hint">Waze n'accepte qu'une destination par lien. À chaque arrêt, reviens ici et touche ce bouton : il passe tout seul à l'étape suivante.</p>`}
+    <details class="more"${done?" open":""}><summary>Toutes les étapes</summary>
+      <div class="navlist">${stops.map((p,i)=>`<a class="navbtn${i<next?" done":""}" href="${wazeUrl(p)}" target="_blank" rel="noopener" data-navkey="${esc(key)}" data-navi="${i}"><span>${i<next?"✓ ":""}${i+1}. ${esc(p.name)}${ferry(i)?" · ferry":""}</span><small>Waze</small></a>`).join("")}</div>
+    </details>
+    <div class="bar">${next>0?`<button class="btn btn-ghost" data-navreset="${esc(key)}">Recommencer</button>`:""}<a class="btn btn-ghost" href="${gmapsUrl(pts)}" target="_blank" rel="noopener">Tout dans Google Maps${pts.length>11?" (9 étapes max)":""}</a></div>
   </div>`;
+}
+function bindNav(){
+  app.querySelectorAll("[data-navkey]").forEach(a=>a.addEventListener("click",()=>{ navSet(a.dataset.navkey, +a.dataset.navi+1); setTimeout(render,600); }));
+  app.querySelectorAll("[data-navreset]").forEach(b=>b.onclick=()=>{ navSet(b.dataset.navreset,0); render(); });
 }
 
 /* ---------- vue trajet (météo détaillée) ---------- */
@@ -1027,6 +1046,7 @@ function renderDetail(force){
   document.getElementById("refresh").onclick=()=>{ const r=state.routes.find(x=>x.id===state.detailId); if(r) getWx(r,state.day,true); render(); };
   document.getElementById("edit").onclick=()=>openEditor(r.id);
   app.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>{state.day=b.dataset.day;render();});
+  bindNav();
 }
 
 /* ---------- vue road trip ---------- */
@@ -1081,6 +1101,7 @@ function renderVoyage(force){
   document.getElementById("refresh").onclick=()=>{ if(d&&ready(d)) getWx(d,d.date,true); render(); };
   document.getElementById("edit").onclick=()=>openVoyageEditor(v.id);
   app.querySelectorAll("[data-vday]").forEach(b=>b.onclick=()=>{ state.vday=+b.dataset.vday; render(); });
+  bindNav();
 }
 
 /* ---------- road trip préparé : Bourges → Cap Nord ---------- */
@@ -1149,7 +1170,7 @@ function bindSeed(){
 /* ---------- générateur de boucles ---------- */
 const LOOP_KMH=45, LOOP_DETOUR=1.3;
 const DIRS=[{deg:0,label:"vers le nord"},{deg:90,label:"vers l'est"},{deg:180,label:"vers le sud"},{deg:270,label:"vers l'ouest"}];
-const DURS=[[90,"1 h 30"],[120,"2 h"],[180,"3 h"],[240,"4 h"],[300,"5 h"],[360,"6 h"]];
+const DURS=[[30,"30 min"],[60,"1 h"],[90,"1 h 30"],[120,"2 h"],[180,"3 h"],[240,"4 h"],[300,"5 h"],[360,"6 h"]];
 const offset=(p,km,deg)=>{ const t=deg*Math.PI/180; return {lat:p.lat+km*Math.cos(t)/111.32, lon:p.lon+km*Math.sin(t)/(111.32*Math.cos(p.lat*Math.PI/180))}; };
 function homePoint(){ const d=state.routes.find(r=>r.isDefault && !isVoyage(r) && r.points.length); return d ? d.points[0] : null; }
 function openLoop(){
@@ -1686,7 +1707,7 @@ const PRESETS=[
   ["Pantalon de pluie","Pluie",-10,30,true,false],["Combinaison de pluie","Pluie",-10,30,true,false],["Gants été","Mains",18,35,false,false],
   ["Gants mi-saison","Mains",8,20,false,false],["Gants hiver","Mains",-5,10,true,false],["Gants chauffants","Chauffant",-10,8,true,true],
   ["Sur-gants de pluie","Pluie",-10,30,true,false],["Bottes étanches","Pieds",-5,25,true,false],["Sur-bottes","Pluie",-10,30,true,false],
-  ["Tour de cou","Tête & cou",-10,15,false,false],["Cagoule","Tête & cou",-10,8,false,false],["Poignées chauffantes","Moto",-10,12,false,true],
+  ["Tour de cou","Tête & cou",-10,15,false,false],["Cagoule","Tête & cou",-10,8,false,false],["Poignées chauffantes","Moto",-10,12,false,true],["Selle chauffante","Moto",-10,12,false,true],
   ["Veste 3 en 1","Haut",-3,35,true,false,DEFAULT_MODES()],["Pantalon 3 en 1","Bas",-3,32,true,false,DEFAULT_MODES()]
 ];
 function loadGear(){ try{ const g=JSON.parse(localStorage.getItem(GEAR_KEY)); if(Array.isArray(g)) return g; }catch(e){} return []; }
