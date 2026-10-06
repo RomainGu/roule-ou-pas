@@ -122,7 +122,8 @@ input[type=text],input[type=search],input[type=time]{width:100%;min-width:0;back
 .bar{display:flex;gap:10px;flex-wrap:wrap}
 .bar .btn{flex:1 1 140px}
 .confirm{display:flex;flex-direction:column;gap:10px;border:1px solid var(--danger);border-radius:10px;padding:12px}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(140px + env(safe-area-inset-bottom,0px));z-index:6;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;white-space:nowrap}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(140px + env(safe-area-inset-bottom,0px));z-index:6;background:var(--ink);color:var(--bg);padding:10px 12px 10px 16px;border-radius:14px;font-weight:600;font-size:14px;display:flex;align-items:center;gap:12px;width:max-content;max-width:calc(100% - 32px)}
+.toast-btn{border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;border-radius:8px;padding:6px 10px;cursor:pointer;flex:0 0 auto}
 /* météo */
 .days{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
 .days::-webkit-scrollbar{display:none}
@@ -188,6 +189,26 @@ input[type=date]{width:100%;min-width:0;background:var(--surface);border:1px sol
 .nudge{display:block;width:100%;text-align:left;border:1px dashed var(--warn);background:transparent;border-radius:10px;padding:10px 12px;font-weight:600;cursor:pointer}
 .import-box{display:flex;flex-direction:column;gap:10px;border:1px solid var(--warn);border-radius:10px;padding:12px}
 .wx-alt{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.swipe{position:relative;border-radius:var(--r);overflow:hidden}
+.swipe-del{position:absolute;top:0;right:0;bottom:0;width:104px;border:0;background:var(--danger);color:var(--surface);font:700 16px/1 var(--display);text-transform:uppercase;letter-spacing:.04em;cursor:pointer}
+.swipe .card{position:relative;z-index:1;touch-action:pan-y;transition:transform .2s ease}
+.swipe.open .card{transform:translateX(-104px)}
+.swipe.dragging .card{transition:none}
+.icon-btn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.ferry-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 0 10px 38px;font-size:14px;color:var(--muted)}
+.ferry-row input{width:84px !important;padding:8px !important;text-align:right}
+.note{font-size:14px;background:var(--bg);border-radius:8px;padding:8px 10px;white-space:pre-wrap}
+.navlist{display:flex;flex-direction:column;gap:8px}
+.navbtn{display:flex;justify-content:space-between;align-items:center;gap:10px;text-decoration:none;color:var(--ink);background:var(--bg);border-radius:10px;padding:11px 12px;font-weight:600}
+.navbtn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.navbtn small{flex:0 0 auto;font-weight:700;color:var(--accent-ink);background:var(--accent);border-radius:6px;padding:4px 8px}
+a.btn{text-decoration:none;color:var(--ink)}
+.modes{display:flex;flex-direction:column;gap:8px}
+.mode{display:grid;grid-template-columns:minmax(0,1fr) 64px 64px auto auto;gap:6px;align-items:center}
+.mode input[type=text],.mode input[type=number]{padding:9px !important;font-size:15px !important}
+.mode label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
+.mode-head{display:grid;grid-template-columns:minmax(0,1fr) 64px 64px auto auto;gap:6px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.seed{border:2px solid var(--accent);background:var(--surface);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
 @media (prefers-reduced-motion:no-preference){.card{transition:transform .12s}.card:active{transform:scale(.985)}}
 </style>
 </head>
@@ -221,6 +242,7 @@ function migrateDay(d){
   if(!d.aller) d.aller={start:"09:00",end:"09:00"};
   d.retour={on:false,start:d.aller.start,end:d.aller.end};
   if(!Array.isArray(d.points)) d.points=[];
+  if(typeof d.note!=="string") d.note="";
   if(!("legs" in d)){ d.legs=null; d.legsKey=""; d.legsSource=""; }
   return d;
 }
@@ -258,21 +280,39 @@ const fmtSlot = (a,b) => a===b ? fmtTime(a) : `${fmtTime(a)}–${fmtTime(b)}`;
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ---------- calcul routier ---------- */
-const keyOf = pts => pts.map(p=>p.lat.toFixed(5)+","+p.lon.toFixed(5)).join(";");
+// clé d'un itinéraire : coordonnées (+ durée de ferry quand une étape s'atteint en bateau)
+const keyOf = pts => pts.map(p=>p.lat.toFixed(5)+","+p.lon.toFixed(5)+(p.ferry>0?"f"+p.ferry:"")).join(";");
 function haversine(a,b){
   const R=6371, t=x=>x*Math.PI/180, dLat=t(b.lat-a.lat), dLon=t(b.lon-a.lon);
   const h=Math.sin(dLat/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(h));
 }
+function ferryLeg(a,b){ return {km:haversine(a,b), min:b.ferry, ferry:true}; }
 function estimateLegs(pts){
-  return pts.slice(1).map((p,i)=>{ const km=haversine(pts[i],p)*FALLBACK_FACTOR; return {km, min:km/FALLBACK_KMH*60}; });
+  return pts.slice(1).map((p,i)=>{ if(p.ferry>0) return ferryLeg(pts[i],p); const km=haversine(pts[i],p)*FALLBACK_FACTOR; return {km, min:km/FALLBACK_KMH*60}; });
 }
-async function fetchLegs(pts){
+async function osrm(pts){
   const coords=pts.map(p=>p.lon+","+p.lat).join(";");
   const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`);
   if(!r.ok) throw new Error(r.status);
   const d=await r.json(); if(d.code!=="Ok"||!d.routes?.length) throw new Error(d.code);
   return {legs:d.routes[0].legs.map(l=>({km:l.distance/1000, min:l.duration/60})), geom:thin(d.routes[0].geometry.coordinates)};
+}
+// la route est calculée par morceaux ; une traversée en ferry est une ligne droite de la durée saisie
+async function fetchLegs(pts){
+  const legs=new Array(Math.max(0,pts.length-1)), geom=[];
+  let from=0;
+  const road=async(a,b)=>{ if(b<=a) return; const r=await osrm(pts.slice(a,b+1)); r.legs.forEach((l,i)=>legs[a+i]=l); geom.push(...r.geom); };
+  for(let i=1;i<pts.length;i++){
+    if(pts[i].ferry>0){
+      await road(from,i-1);
+      legs[i-1]=ferryLeg(pts[i-1],pts[i]);
+      geom.push([+pts[i-1].lat.toFixed(5),+pts[i-1].lon.toFixed(5)],[+pts[i].lat.toFixed(5),+pts[i].lon.toFixed(5)]);
+      from=i;
+    }
+  }
+  await road(from,pts.length-1);
+  return {legs, geom};
 }
 // tronçons pour un ordre de points ; le retour réutilise les tronçons de l'aller, inversés
 function legsFor(route, reverse){
@@ -287,8 +327,9 @@ function timeline(route, reverse, startMin){
   const stopsBefore = drive => every&&len ? Math.max(0, Math.ceil(drive/every)-1) : 0;
   let km=0, m=startMin, drive=0, pauses=0; const out=[{pt:pts[0],km:0,min:m,pauses:0}];
   legs.forEach((l,i)=>{
-    const n=stopsBefore(drive+l.min)-stopsBefore(drive);
-    drive+=l.min; km+=l.km; pauses+=n; m+=l.min+n*len;
+    const n=l.ferry ? 0 : stopsBefore(drive+l.min)-stopsBefore(drive); // pas de pause comptée en ferry
+    if(!l.ferry) drive+=l.min;
+    km+=l.km; pauses+=n; m+=l.min+n*len;
     out.push({pt:pts[i+1],km,min:m,pauses});
   });
   return out;
@@ -377,7 +418,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.06-2";
+const APP_VERSION="2026.10.06-3";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -604,7 +645,11 @@ function rideFeel(t, kmh){
   const v=Math.pow(kmh,0.16);
   return Math.min(t, 13.12+0.6215*t-11.37*v+0.3965*t*v);
 }
-function avgSpeed(route){ const t=totals(route); return state.rules.rideSpeed>0 ? state.rules.rideSpeed : (t.min>0 ? t.km/(t.min/60) : 50); }
+function avgSpeed(route){
+  if(state.rules.rideSpeed>0) return state.rules.rideSpeed;
+  const l=legsFor(route,false).filter(x=>!x.ferry), km=l.reduce((s,x)=>s+x.km,0), min=l.reduce((s,x)=>s+x.min,0);
+  return min>0 ? km/(min/60) : 50;
+}
 const ZONES=["Haut","Bas","Mains","Pieds","Tête & cou"];
 function outfitOf(g){
   const R=state.rules, gear=state.gear, T=g.tMin, Tx=Number.isFinite(g.tMax)?g.tMax:T;
@@ -613,8 +658,12 @@ function outfitOf(g){
   const covers=(i,t)=>i.tMin<=t && t<=i.tMax;
   const isLayer=i=>/doublure/i.test(i.name);
   const picks=[];
+  // une veste modulable (3 en 1) propose une option par configuration
+  const options=i=>Array.isArray(i.modes)&&i.modes.length
+    ? i.modes.map(m=>({name:`${i.name} — ${m.name}`, tMin:m.tMin, tMax:m.tMax, waterproof:!!m.waterproof, mode:true}))
+    : [{name:i.name, tMin:i.tMin, tMax:i.tMax, waterproof:!!i.waterproof, mode:false}];
   ZONES.forEach(z=>{
-    const c=gear.filter(i=>i.cat===z && !isLayer(i)); if(!c.length) return;
+    const c=gear.filter(i=>i.cat===z && !isLayer(i)).flatMap(options); if(!c.length) return;
     let ok=c.filter(i=>covers(i,T)), note="";
     if(!ok.length){
       if(z==="Tête & cou") return; // accessoire : seulement quand il fait froid
@@ -622,20 +671,31 @@ function outfitOf(g){
       ok=[c.slice().sort((a,b)=>dist(a)-dist(b))[0]];
       note = T<ok[0].tMin ? "un peu juste pour ce froid" : "un peu chaud";
     }
-    const score=i=>(covers(i,Tx)?2:0)+(wet&&i.waterproof?3:0)-(i.tMax-i.tMin)/60;
+    const mid=i=>(i.tMin+i.tMax)/2;
+    const score=i=>(covers(i,Tx)?2:0)+(wet&&i.waterproof?3:0)-(i.mode&&!wet&&i.waterproof?0.5:0)-Math.abs(T-mid(i))/Math.max(4,i.tMax-i.tMin);
     ok.sort((a,b)=>score(b)-score(a));
     picks.push({zone:z, item:ok[0], note});
   });
   gear.filter(i=>isLayer(i)||i.cat==="Chauffant"||i.cat==="Moto").forEach(i=>{
     if(T<=i.tMax) picks.push({zone:i.cat==="Moto"?"Moto":"En plus", item:i, note:/gant/i.test(i.name)&&picks.some(p=>p.zone==="Mains")?"à la place des gants, à allumer":i.heated?"à allumer":""});
   });
+  let missing=[];
   if(wet){
-    const rain=gear.filter(i=>i.cat==="Pluie");
-    const combi=rain.find(i=>/combi/i.test(i.name));
-    (combi ? [combi, ...rain.filter(i=>!/combi|pantalon|veste/i.test(i.name))] : rain).forEach(i=>picks.push({zone:"Pluie", item:i, note:""}));
+    // pluie : on ne complète que ce qui n'est pas déjà étanche
+    const rain=gear.filter(i=>i.cat==="Pluie"), find=re=>rain.find(i=>re.test(i.name));
+    const dryZ=z=>{ const p=picks.find(x=>x.zone===z); return !!(p&&p.item.waterproof); };
+    const add=i=>{ if(i && !picks.some(p=>p.item===i)) picks.push({zone:"Pluie", item:i, note:""}); return !!i; };
+    let top=dryZ("Haut"), bot=dryZ("Bas");
+    const combi=find(/combi/i);
+    if(!top && !bot && combi){ add(combi); top=bot=true; }
+    if(!top) top=add(find(/veste/i)) || add(combi);
+    if(!bot) bot=add(find(/pantalon/i)) || add(combi);
+    if(!dryZ("Mains")) add(find(/gant/i));
+    if(!dryZ("Pieds")) add(find(/botte|chaussure/i));
+    rain.filter(i=>!/combi|veste|pantalon|gant|botte|chaussure/i.test(i.name)).forEach(add);
+    if(!top) missing.push("le haut"); if(!bot) missing.push("le bas");
   }
-  const dry = !wet || picks.some(p=>p.zone==="Pluie") || picks.filter(p=>p.zone==="Haut"||p.zone==="Bas").every(p=>p.item.waterproof);
-  return {picks, wet, empty:false, noRainGear:!dry};
+  return {picks, wet, empty:false, noRainGear:missing.length>0, missing};
 }
 function verdictHtml(v, compact){
   const V=VERDICT[v.lvl];
@@ -645,7 +705,7 @@ function verdictHtml(v, compact){
 function outfitHtml(o, compact){
   if(o.empty) return `<p class="hint">Ajoute ton matériel dans l'onglet Équipement pour savoir quoi mettre.</p>`;
   if(!o.picks.length) return "";
-  const warn = o.noRainGear ? `<p class="err">Pluie prévue et rien d'étanche dans ton équipement.</p>` : "";
+  const warn = o.noRainGear ? `<p class="err">Pluie prévue : rien d'étanche pour ${o.missing.join(" et ")} dans ton équipement.</p>` : "";
   if(compact) return `<div class="kit-line"><span class="lbl">Tenue</span> ${o.picks.map(p=>esc(p.item.name)).join(" · ")}</div>${warn}`;
   return `<div class="outfit"><div class="lbl">Tenue conseillée</div><ul class="kit">
     ${o.picks.map(p=>`<li><span class="zone">${esc(p.zone)}</span><span>${esc(p.item.name)}${p.note?` <small>${esc(p.note)}</small>`:""}</span></li>`).join("")}
@@ -828,7 +888,7 @@ function dayVerdict(d){
   if(!ready(d)) return {cls:"", label:"À compléter"};
   const w=getWx(d,d.date);
   if(w.past) return {cls:"", label:"Passé"};
-  if(w.later) return {cls:"", label:"Météo le "+fmtDate(w.later,{day:"numeric",month:"numeric"})};
+  if(w.later) return {cls:"", label:"Météo dès le "+fmtDate(w.later,{day:"numeric",month:"short"})};
   if(!w.data) return {cls:"", label:w.error?"Météo indispo.":"Météo…"};
   const V=VERDICT[verdictOf(sampleTrip(d,false,d.aller,w.data).agg).lvl];
   return {cls:V.cls, label:V.label};
@@ -854,25 +914,44 @@ function renderList(){
     <div class="stack">
       ${def.length?`<div class="eyebrow">Trajet par défaut</div><div class="list">${def.map(cardHtml).join("")}</div>`:""}
       <div class="eyebrow">Road trips · ${voyages.length}</div>
-      ${voyages.length?`<div class="list">${voyages.map(voyageCard).join("")}</div>`:`<p class="hint">Prépare un voyage sur plusieurs jours avec le bouton « + Road trip » : une journée par étape, avec la météo de chaque jour.</p>`}
+      ${seedPanel()}
+      ${voyages.length?`<div class="list">${voyages.map(v=>swipeWrap(v.id,voyageCard(v))).join("")}</div>${voyages.length?`<p class="hint">Glisse une carte vers la gauche pour la supprimer.</p>`:""}`:`<p class="hint">Prépare un voyage sur plusieurs jours avec le bouton « + Road trip » : une journée par étape, avec la météo de chaque jour.</p>`}
       <div class="eyebrow">Autres trajets · ${others.length}</div>
-      ${others.length?`<div class="list">${others.map(cardHtml).join("")}</div>`:`<p class="hint">Balades d'une journée : crée-les avec « + Trajet ».</p>`}
+      ${others.length?`<div class="list">${others.map(r=>swipeWrap(r.id,cardHtml(r))).join("")}</div>`:`<p class="hint">Balades d'une journée : crée-les avec « + Trajet ».</p>`}
       ${needsBackup()?`<button class="nudge" id="nudge">Pense à sauvegarder tes données → Réglages</button>`:""}
     </div>
     <div class="fab-row"><button class="btn btn-ghost" id="new">+ Trajet</button><button class="btn btn-primary" id="newv">+ Road trip</button></div>
     ${tabsBar()}`;
-  bindTabs();
+  bindTabs(); bindSwipes(); bindSeed();
   app.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{
+    if(swipeGuard(b)) return;
     const r=state.routes.find(x=>x.id===b.dataset.open);
     ready(r) ? openDetail(r.id) : openEditor(r.id);
   });
   app.querySelectorAll("[data-voyage]").forEach(b=>b.onclick=()=>{
+    if(swipeGuard(b)) return;
     const v=state.routes.find(x=>x.id===b.dataset.voyage);
     v.days.length ? openVoyage(v.id) : openVoyageEditor(v.id);
   });
   document.getElementById("new").onclick=()=>openEditor(null);
   document.getElementById("newv").onclick=()=>openVoyageEditor(null);
   const n=document.getElementById("nudge"); if(n) n.onclick=()=>{ state.tab="reglages"; render(); window.scrollTo(0,0); };
+}
+
+/* ---------- navigation : Waze et Google Maps ---------- */
+const wazeUrl = p => `https://waze.com/ul?ll=${p.lat.toFixed(5)},${p.lon.toFixed(5)}&navigate=yes`;
+function gmapsUrl(pts){
+  const f=p=>`${p.lat.toFixed(5)},${p.lon.toFixed(5)}`, mids=pts.slice(1,-1).slice(0,9);
+  return `https://www.google.com/maps/dir/?api=1&origin=${f(pts[0])}&destination=${f(pts.at(-1))}${mids.length?`&waypoints=${encodeURIComponent(mids.map(f).join("|"))}`:""}&travelmode=driving`;
+}
+function navPanel(route, reverse, title){
+  if(!ready(route)) return "";
+  const pts = reverse ? route.points.slice().reverse() : route.points;
+  return `<div class="panel"><h3>${esc(title||"Navigation")}</h3>
+    <p class="hint">Waze ne prend qu'une destination à la fois : à chaque arrêt, touche l'étape suivante. Google Maps reçoit toute la journée avec ses étapes${pts.length>11?" (les 9 premières)":""}.</p>
+    <div class="navlist">${pts.slice(1).map((p,i)=>`<a class="navbtn" href="${wazeUrl(p)}" target="_blank" rel="noopener"><span>${i+1}. ${esc(p.name)}${(reverse?pts[i].ferry:p.ferry)>0?" · ferry":""}</span><small>Waze</small></a>`).join("")}</div>
+    <a class="btn btn-ghost" href="${gmapsUrl(pts)}" target="_blank" rel="noopener">Tout le trajet dans Google Maps</a>
+  </div>`;
 }
 
 /* ---------- vue trajet (météo détaillée) ---------- */
@@ -903,10 +982,12 @@ function renderDetail(force){
     <div class="stack">
       <div><h2>${esc(r.name)}</h2><p class="hint">${esc(r.points.map(p=>p.name).join(" → "))}</p></div>
       <div class="days" role="group" aria-label="Jour du trajet">
-        ${days.map((d,i)=>`<button class="day" data-day="${d}" aria-pressed="${d===state.day}">${i<2?dayLabel(d):dayLabel(d,true)}<small>${Number(d.slice(8))}/${Number(d.slice(5,7))}</small></button>`).join("")}
+        ${days.map((d,i)=>`<button class="day" data-day="${d}" aria-pressed="${d===state.day}">${i<2?dayLabel(d):dayLabel(d,true)}<small>${esc(fmtDate(d,{day:"numeric",month:"short"}))}</small></button>`).join("")}
       </div>
       ${mapBox(r,"detail",marks)}
       <div class="panel">${body}</div>
+      ${navPanel(r,false,r.retour.on?"Navigation · aller":"Navigation")}
+      ${r.retour.on?navPanel(r,true,"Navigation · retour"):""}
       <div class="bar"><button class="btn btn-ghost" id="edit">Modifier l'itinéraire</button></div>
     </div>`;
   document.getElementById("back").onclick=()=>{state.view="list";render();};
@@ -958,13 +1039,78 @@ function renderVoyage(force){
           ${tl?`<div class="s">${fmtKm(totals(x).km)} · ${fmtTime(tl[0].min)} → ${fmtTime(tl.at(-1).min)}</div>`:""}</div>
           <span class="vbadge ${dv.cls}">${esc(dv.label)}</span></button>`; }).join("")}</div>
       ${d&&ready(d)?mapBox(d,"detail",marks):""}
+      ${d&&d.note?`<div class="note">${esc(d.note)}</div>`:""}
       <div class="panel">${body}</div>
+      ${d?navPanel(d,false,`Navigation · jour ${state.vday+1}`):""}
       <div class="bar"><button class="btn btn-ghost" id="edit">Modifier le road trip</button></div>
     </div>`;
   document.getElementById("back").onclick=()=>{ state.view="list"; render(); };
   document.getElementById("refresh").onclick=()=>{ if(d&&ready(d)) getWx(d,d.date,true); render(); };
   document.getElementById("edit").onclick=()=>openVoyageEditor(v.id);
   app.querySelectorAll("[data-vday]").forEach(b=>b.onclick=()=>{ state.vday=+b.dataset.vday; render(); });
+}
+
+/* ---------- road trip préparé : Bourges → Cap Nord ---------- */
+const dayDiff = (a,b) => { const p=s=>{ const [y,m,d]=s.split("-").map(Number); return Date.UTC(y,m-1,d); }; return Math.round((p(b)-p(a))/864e5); };
+// [nom, région, lat, lon, ferry en min] ; tronçons [km, min] mesurés par la route (OSRM), ferries comptés à part
+const CAP_NORD={id:"cap-nord", name:"Bourges → Cap Nord", days:[
+  {off:0,start:"08:30",note:"Liaison autoroute vers l'Allemagne.",pts:[["Bourges","Cher, France",47.081,2.3988],["Metz","Moselle, France",49.1193,6.1757]]},
+  {off:1,start:"08:30",note:"Autoroutes allemandes.",pts:[["Metz","Moselle, France",49.1193,6.1757],["Kassel","Hesse, Allemagne",51.3127,9.4797]]},
+  {off:2,start:"08:30",note:"Dernière étape en Allemagne, nuit près de la frontière danoise.",pts:[["Kassel","Hesse, Allemagne",51.3127,9.4797],["Flensburg","Schleswig-Holstein, Allemagne",54.7937,9.447]]},
+  {off:3,start:"08:00",note:"Ferry Hirtshals → Kristiansand (Color Line ou Fjord Line) : 3 h 15 comptées, embarquement compris. Réserve et cale l'heure de départ sur ton horaire de ferry.",pts:[["Flensburg","Schleswig-Holstein, Allemagne",54.7937,9.447],["Hirtshals (ferry)","Jutland du Nord, Danemark",57.5929,9.964],["Kristiansand","Agder, Norvège",58.1467,7.9956,195]]},
+  {off:4,start:"09:00",note:"Vallée de Setesdal puis le Hardanger.",pts:[["Kristiansand","Agder, Norvège",58.1467,7.9956],["Odda","Vestland, Norvège",60.069,6.5459]]},
+  {off:5,start:"09:00",note:"Tunnel de Lærdal (24,5 km) après Flåm : frais et humide, garde une couche à portée.",pts:[["Odda","Vestland, Norvège",60.069,6.5459],["Flåm","Vestland, Norvège",60.8628,7.1124],["Sogndal","Vestland, Norvège",61.2297,7.097]]},
+  {off:6,start:"09:00",note:"Sognefjellet (1 434 m) puis la descente sur Geiranger : routes de montagne fermées l'hiver, vérifie l'ouverture avant de partir.",pts:[["Sogndal","Vestland, Norvège",61.2297,7.097],["Lom","Innlandet, Norvège",61.8381,8.5674],["Geiranger","Møre og Romsdal, Norvège",62.1008,7.2059]]},
+  {off:7,start:"09:00",note:"Court ferry Eidsdal–Linge inclus, puis Trollstigen (fermée l'hiver) et la route de l'Atlantique.",pts:[["Geiranger","Møre og Romsdal, Norvège",62.1008,7.2059],["Trollstigen","Møre og Romsdal, Norvège",62.4565,7.6672],["Åndalsnes","Møre og Romsdal, Norvège",62.5675,7.687],["Route de l'Atlantique","Møre og Romsdal, Norvège",63.0167,7.3533],["Kristiansund","Møre og Romsdal, Norvège",63.1105,7.7279]]},
+  {off:8,start:"09:00",note:"Un court ferry sur la E39 est inclus dans le calcul.",pts:[["Kristiansund","Møre og Romsdal, Norvège",63.1105,7.7279],["Trondheim","Trøndelag, Norvège",63.4305,10.3951],["Steinkjer","Trøndelag, Norvège",64.0149,11.4954]]},
+  {off:9,start:"09:00",note:"",pts:[["Steinkjer","Trøndelag, Norvège",64.0149,11.4954],["Mosjøen","Nordland, Norvège",65.8364,13.1932],["Mo i Rana","Nordland, Norvège",66.3128,14.1428]]},
+  {off:10,start:"09:00",note:"Passage du cercle polaire sur le plateau de Saltfjellet.",pts:[["Mo i Rana","Nordland, Norvège",66.3128,14.1428],["Cercle polaire (Polarsirkelsenteret)","Nordland, Norvège",66.5517,15.32],["Bodø","Nordland, Norvège",67.2804,14.4049]]},
+  {off:11,start:"08:00",note:"Ferry Bodø → Moskenes : environ 3 h 30 comptées, embarquement compris. Réservation fortement conseillée en été.",pts:[["Bodø (ferry)","Nordland, Norvège",67.2804,14.4049],["Moskenes","Lofoten, Norvège",67.8998,13.0531,210],["Reine","Lofoten, Norvège",67.9322,13.0886],["Svolvær","Lofoten, Norvège",68.2342,14.5683]]},
+  {off:12,start:"09:00",note:"",pts:[["Svolvær","Lofoten, Norvège",68.2342,14.5683],["Narvik","Nordland, Norvège",68.4385,17.4273]]},
+  {off:13,start:"09:00",note:"",pts:[["Narvik","Nordland, Norvège",68.4385,17.4273],["Tromsø","Troms, Norvège",69.6492,18.9553]]},
+  {off:14,start:"09:00",note:"Longue étape le long des fjords du nord.",pts:[["Tromsø","Troms, Norvège",69.6492,18.9553],["Alta","Finnmark, Norvège",69.9689,23.2716]]},
+  {off:15,start:"09:00",note:"Tunnel sous-marin du Cap Nord (6,9 km, jusqu'à 212 m sous la mer) : froid et humide. L'entrée du site du Cap Nord est payante.",pts:[["Alta","Finnmark, Norvège",69.9689,23.2716],["Honningsvåg","Finnmark, Norvège",70.9822,25.9705],["Cap Nord (Nordkapp)","Finnmark, Norvège",71.1685,25.7838]]}
+],
+legs:[[[497.4,339]],[[414.7,250.8]],[[469.7,291.9]],[[363.9,235.2],null],[[332.9,332.5]],[[153.4,162],[72.1,83.7]],[[137.1,137.6],[96.4,94.8]],
+  [[68.5,78.6],[19.3,20],[99.6,112.9],[35.1,39.3]],[[194.1,222.1],[120.4,122.4]],[[266.9,252.3],[86.2,84.9]],[[80.7,73.1],[148.9,145.1]],
+  [null,[5.3,7.5],[120.9,129.6]],[[222.2,219.1]],[[240.5,236.6]],[[388.7,388.9]],[[206.7,202.5],[33.7,34.2]]]};
+function instantiate(t, startIso){
+  return {id:"v"+Date.now().toString(36), kind:"voyage", template:t.id, name:t.name,
+    days:t.days.map((d,k)=>{
+      const day=migrateDay({date:addDays(startIso,d.off), aller:{start:d.start,end:d.start}, note:d.note||"",
+        points:d.pts.map(p=>({name:p[0], ctx:p[1], lat:p[2], lon:p[3], ...(p[4]?{ferry:p[4]}:{})}))});
+      day.legs=t.legs[k].map((l,i)=>l?{km:l[0],min:l[1]}:ferryLeg(day.points[i],day.points[i+1]));
+      day.legsKey=keyOf(day.points); day.legsSource="osrm";
+      return day;
+    })};
+}
+// récupère le tracé de chaque journée en arrière-plan, une à la fois
+async function prefetchVoyage(id){
+  const v=state.routes.find(r=>r.id===id); if(!v) return;
+  for(const d of v.days){
+    if(!ready(d) || (d.geom && d.geomKey===keyOf(d.points))) continue;
+    await ensureGeom(d); await new Promise(r=>setTimeout(r,1200));
+  }
+}
+const SEED_KEY="rouleoupas.capnord.v1";
+function templatePanel(prefix="tpl"){
+  return `<div class="seed"><b>Road trip prêt : Bourges → Cap Nord (aller)</b>
+    <span class="hint">16 journées, environ 4 900 km de route et 2 ferries (Danemark → Norvège, Bodø → Lofoten), par les fjords, Trollstigen, le cercle polaire et les Lofoten. Choisis la date de départ, tout est modifiable ensuite.</span>
+    <div class="field"><label for="${prefix}-date">Date de départ de Bourges</label><input type="date" id="${prefix}-date" min="${todayIso()}"></div>
+    <div class="bar"><button class="btn btn-primary" id="${prefix}-go">Créer ce road trip</button>${prefix==="seed"?`<button class="btn btn-ghost" id="seed-no">Plus tard</button>`:""}</div></div>`;
+}
+function bindTemplate(prefix, create){
+  const go=document.getElementById(prefix+"-go"); if(!go) return;
+  go.onclick=()=>{ const dt=document.getElementById(prefix+"-date").value; if(!dt){ toast("Choisis d'abord la date de départ"); return; } create(dt); };
+}
+function seedPanel(){
+  let flag=null; try{ flag=localStorage.getItem(SEED_KEY); }catch(e){}
+  if(flag || state.routes.some(r=>r.template==="cap-nord")) return "";
+  return templatePanel("seed");
+}
+function bindSeed(){
+  bindTemplate("seed", start=>{ const v=instantiate(CAP_NORD,start); state.routes.push(v); save(); try{ localStorage.setItem(SEED_KEY,"done"); }catch(e){} openVoyage(v.id); prefetchVoyage(v.id); toast("Road trip Cap Nord créé"); });
+  const no=document.getElementById("seed-no"); if(no) no.onclick=()=>{ try{ localStorage.setItem(SEED_KEY,"later"); }catch(e){} render(); toast("Tu le retrouveras dans « + Road trip »"); };
 }
 
 /* ---------- éditeur de road trip ---------- */
@@ -992,6 +1138,8 @@ function renderVoyageEditor(){
     <div class="stack">
       <div class="field"><label for="vname">Nom du road trip</label>
         <input type="text" id="vname" placeholder="Ex. : Norvège, fjords et cols" value="${esc(v.name)}" maxlength="60"></div>
+      ${v.days.length?`<div class="field"><label for="vstart">Départ du road trip (jour 1)</label><input type="date" id="vstart" value="${esc(v.days[0].date)}">
+        <p class="hint">Changer cette date décale toutes les journées d'autant.</p></div>`:templatePanel()}
       <div class="panel">
         <h2>Journées</h2>
         ${v.days.length?`<div class="dayrows">${v.days.map((d,i)=>{ const tl=ready(d)?timeline(d,false,toMin(d.aller.start)):null;
@@ -1013,6 +1161,8 @@ function renderVoyageEditor(){
     </div>`;
   const $=id=>document.getElementById(id);
   $("vname").oninput=e=>v.name=e.target.value;
+  if($("vstart")) $("vstart").onchange=e=>{ const nd=e.target.value; if(!nd) return; const delta=dayDiff(v.days[0].date, nd); v.days.forEach(d=>d.date=addDays(d.date,delta)); if(!state.vNew) upsertVoyage(v); render(); toast("Dates décalées"); };
+  bindTemplate("tpl", start=>{ const t=instantiate(CAP_NORD,start); t.id=v.id; if(v.name.trim()) t.name=v.name; state.vdraft=t; upsertVoyage(t); prefetchVoyage(t.id); render(); toast("Road trip Cap Nord créé"); });
   $("back").onclick=()=>{ const saved=state.routes.some(r=>r.id===v.id); state.vdraft=null; saved&&v.days.length ? openVoyage(v.id) : (state.view="list", render()); };
   $("addday").onclick=()=>editDay(-1);
   app.querySelectorAll("[data-eday]").forEach(b=>b.onclick=()=>editDay(+b.dataset.eday));
@@ -1073,20 +1223,22 @@ function renderEditor(){
   const a1=ok?timeline(d,false,toMin(d.aller.start)):null, a2=ok?timeline(d,false,toMin(d.aller.end)):null;
   const steps = d.points.map((pt,i)=>{
     const end=i===0||i===n-1;
-    const sub = ok ? (i===0 ? `départ ${fmtSlot(a1[0].min,a2[0].min)}` : `${fmtKm(a1[i].km)} · passage ${fmtSlot(a1[i].min,a2[i].min)}`) : "";
+    const sub = ok ? (i===0 ? `départ ${fmtSlot(a1[0].min,a2[0].min)}` : `${pt.ferry>0?"ferry · ":""}${fmtKm(a1[i].km)} · ${pt.ferry>0?"arrivée":"passage"} ${fmtSlot(a1[i].min,a2[i].min)}`) : "";
     return `<li class="step${end?" end":""}">
       <div class="dot">${i===0?"D":i===n-1?(day?"N":"A"):i}</div>
       <div class="txt"><div class="city">${esc(pt.name)}</div>
         <div class="sub">${esc(pt.ctx||"")}${sub?" · "+sub:""}</div></div>
       <div class="acts">
+        ${i>0?`<button class="icon-btn${pt.ferry>0?" on":""}" data-ferry="${i}" aria-label="Arrivée en ferry" aria-pressed="${pt.ferry>0}">⛴</button>`:""}
         <button class="icon-btn" data-up="${i}" aria-label="Monter" ${i===0?"disabled":""}>↑</button>
         <button class="icon-btn" data-down="${i}" aria-label="Descendre" ${i===n-1?"disabled":""}>↓</button>
         <button class="icon-btn" data-del="${i}" aria-label="Retirer">✕</button>
-      </div></li>`;
+      </div></li>${pt.ferry>0?`<li class="ferry-row"><label for="fer-${i}">Traversée en ferry jusqu'ici, embarquement compris :</label><input type="number" inputmode="numeric" id="fer-${i}" value="${pt.ferry}" min="10" step="5"> min</li>`:""}`;
   }).join("");
   const t=ok?totals(d):null, est=ok&&isEstimate(d);
   const top = day
-    ? `<div class="field"><label for="dday">Date de la journée ${dayNum}</label><input type="date" id="dday" value="${esc(d.date)}"></div>`
+    ? `<div class="field"><label for="dday">Date de la journée ${dayNum}</label><input type="date" id="dday" value="${esc(d.date)}"></div>
+       <div class="field"><label for="dnote">Notes de la journée</label><textarea id="dnote" maxlength="400" placeholder="Ex. : ferry réservé à 14 h, col fermé l'hiver…">${esc(d.note||"")}</textarea></div>`
     : `<div class="field"><label for="name">Nom</label>
         <input type="text" id="name" placeholder="Ex. : Sortie du dimanche" value="${esc(d.name)}" maxlength="60"></div>`;
   const hintEmpty = day ? "Départ de la journée, tes étapes, puis l'endroit où tu dors : la carte et la météo suivent." :
@@ -1122,7 +1274,7 @@ function renderEditor(){
         ${ok?mapBox(d,"edit"):""}
         ${ok?`<div class="summary">
           <div><b>${fmtKm(t.km)}</b><span>Distance</span></div>
-          <div><b>${est?"≈ ":""}${fmtDur(t.min)}</b><span>Durée par la route</span></div></div>
+          <div><b>${est?"≈ ":""}${fmtDur(t.min)}</b><span>${d.points.some(p=>p.ferry>0)?"Durée, ferry compris":"Durée par la route"}</span></div></div>
           ${state.routing?`<p class="hint">Calcul de l'itinéraire routier…</p>`:
             state.routingErr?`<p class="err">Calcul routier indisponible : durée estimée. Rouvre l'itinéraire avec du réseau pour la corriger.</p>`:
             `<p class="hint">Durée de route sans bouchons ; les pauses sont ajoutées aux heures de passage.</p>`}`:""}
@@ -1142,6 +1294,9 @@ function renderEditor(){
   $("back").onclick = day ? ()=>leaveDay() : ()=>{const back=!state.isNew&&ready(d)&&state.routes.some(r=>r.id===d.id);state.draft=null;back?openDetail(d.id):(state.view="list",render());};
   if($("name")) $("name").oninput=e=>d.name=e.target.value;
   if($("dday")) $("dday").onchange=e=>{ if(e.target.value) d.date=e.target.value; };
+  if($("dnote")) $("dnote").oninput=e=>{ d.note=e.target.value; };
+  app.querySelectorAll("[data-ferry]").forEach(b=>b.onclick=()=>{ const p=d.points[+b.dataset.ferry]; if(p.ferry>0) delete p.ferry; else p.ferry=60; render(); });
+  app.querySelectorAll("[id^=fer-]").forEach(inp=>inp.onchange=()=>{ const p=d.points[+inp.id.slice(4)]; p.ferry=Math.max(10,Math.round(Number(inp.value)||60)); render(); });
   ["aller","retour"].forEach(w=>{
     const s=$(w+"-s"), e=$(w+"-e"); if(!s) return;
     s.onchange=()=>{d[w].start=s.value||d[w].start; if(toMin(d[w].end)<toMin(d[w].start)) d[w].end=d[w].start; render();};
@@ -1253,18 +1408,32 @@ function saveDraft(){
 const GEAR_KEY="rouleoupas.gear.v1";
 const CATS=["Haut","Bas","Mains","Pieds","Tête & cou","Pluie","Chauffant","Moto"];
 // [nom, catégorie, temp. mini °C, temp. maxi °C, étanche, chauffant]
+// configurations type d'une veste 3 en 1 : coque aérée + membrane étanche + doublure thermique amovibles
+function DEFAULT_MODES(){ return [
+  {name:"Aérée, sans doublure", tMin:20, tMax:35, waterproof:false},
+  {name:"Membrane étanche", tMin:12, tMax:24, waterproof:true},
+  {name:"Doublure thermique", tMin:5, tMax:16, waterproof:false},
+  {name:"Étanche + doublure", tMin:-3, tMax:12, waterproof:true}]; }
 const PRESETS=[
   ["Veste été (mesh)","Haut",18,35,false,false],["Veste mi-saison","Haut",8,22,false,false],["Veste hiver","Haut",-5,12,true,false],
   ["Doublure thermique","Haut",-5,12,false,false],["Gilet chauffant","Chauffant",-10,10,false,true],["Pantalon moto","Bas",5,28,false,false],
   ["Pantalon de pluie","Pluie",-10,30,true,false],["Combinaison de pluie","Pluie",-10,30,true,false],["Gants été","Mains",18,35,false,false],
   ["Gants mi-saison","Mains",8,20,false,false],["Gants hiver","Mains",-5,10,true,false],["Gants chauffants","Chauffant",-10,8,true,true],
   ["Sur-gants de pluie","Pluie",-10,30,true,false],["Bottes étanches","Pieds",-5,25,true,false],["Sur-bottes","Pluie",-10,30,true,false],
-  ["Tour de cou","Tête & cou",-10,15,false,false],["Cagoule","Tête & cou",-10,8,false,false],["Poignées chauffantes","Moto",-10,12,false,true]
+  ["Tour de cou","Tête & cou",-10,15,false,false],["Cagoule","Tête & cou",-10,8,false,false],["Poignées chauffantes","Moto",-10,12,false,true],
+  ["Veste 3 en 1","Haut",-3,35,true,false,DEFAULT_MODES()],["Pantalon 3 en 1","Bas",-3,32,true,false,DEFAULT_MODES()]
 ];
 function loadGear(){ try{ const g=JSON.parse(localStorage.getItem(GEAR_KEY)); if(Array.isArray(g)) return g; }catch(e){} return []; }
 function saveGear(){ try{ localStorage.setItem(GEAR_KEY, JSON.stringify(state.gear)); return true; }catch(e){ toast("Enregistrement impossible sur cet appareil"); return false; } }
-const gearFrom = p => ({id:"g"+Date.now().toString(36)+Math.random().toString(36).slice(2,5), name:p[0], cat:p[1], tMin:p[2], tMax:p[3], waterproof:p[4], heated:p[5], note:""});
+const gearFrom = p => syncModes({id:"g"+Date.now().toString(36)+Math.random().toString(36).slice(2,5), name:p[0], cat:p[1], tMin:p[2], tMax:p[3], waterproof:p[4], heated:p[5], note:"", ...(p[6]?{modes:p[6]}:{})});
 const tempRange = g => `${g.tMin} à ${g.tMax} °C`;
+// le résumé de l'équipement suit ses configurations
+function syncModes(g){
+  if(Array.isArray(g.modes) && g.modes.length){
+    g.tMin=Math.min(...g.modes.map(m=>m.tMin)); g.tMax=Math.max(...g.modes.map(m=>m.tMax)); g.waterproof=g.modes.some(m=>m.waterproof);
+  } else delete g.modes;
+  return g;
+}
 
 function tabsBar(){
   return `<nav class="tabs" aria-label="Sections">
@@ -1289,7 +1458,8 @@ function renderGear(){
           <div class="gear-list">${gr.items.map(g=>`
             <button class="gear" data-gear="${esc(g.id)}">
               <span class="gear-name">${esc(g.name)}</span>
-              <span class="chips"><span class="chip">${esc(tempRange(g))}</span>${g.waterproof?'<span class="chip">Étanche</span>':""}${g.heated?'<span class="chip accent">Chauffant</span>':""}</span>
+              ${g.modes?`<span class="chips">${g.modes.map(m=>`<span class="chip">${esc(m.name)} · ${m.tMin} à ${m.tMax} °C${m.waterproof?" · étanche":""}</span>`).join("")}</span>`
+                :`<span class="chips"><span class="chip">${esc(tempRange(g))}</span>${g.waterproof?'<span class="chip">Étanche</span>':""}${g.heated?'<span class="chip accent">Chauffant</span>':""}</span>`}
               ${g.note?`<small class="hint">${esc(g.note)}</small>`:""}
             </button>`).join("")}</div></div>`).join("")
       : `<p class="hint">Ajoute ce que tu as dans ton placard moto. L'appli s'en servira pour te dire quoi mettre selon la météo du trajet.</p>`}
@@ -1308,11 +1478,11 @@ function renderGear(){
 }
 function openGear(id){
   const src=id?state.gear.find(g=>g.id===id):null;
-  state.gearDraft = src ? {...src} : gearFrom(["","Haut",5,20,false,false]);
+  state.gearDraft = src ? JSON.parse(JSON.stringify(src)) : gearFrom(["","Haut",5,20,false,false]);
   state.gearNew=!src; state.confirmDelete=false; state.view="gear-edit"; render(); window.scrollTo(0,0);
 }
 function renderGearEdit(){
-  const g=state.gearDraft;
+  const g=state.gearDraft, modular=Array.isArray(g.modes);
   app.innerHTML = `
     <header class="top">
       <button class="icon-btn" id="back" aria-label="Retour">←</button>
@@ -1325,12 +1495,24 @@ function renderGearEdit(){
         <select id="g-cat">${CATS.map(c=>`<option ${c===g.cat?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
       <div class="panel">
         <h3>Confort</h3>
-        <p class="hint">Températures entre lesquelles tu es bien avec cet équipement, en roulant.</p>
-        <div class="row2">
-          <div class="field"><label for="g-min">Mini (°C)</label><input type="number" inputmode="numeric" id="g-min" value="${g.tMin}" min="-30" max="45"></div>
-          <div class="field"><label for="g-max">Maxi (°C)</label><input type="number" inputmode="numeric" id="g-max" value="${g.tMax}" min="-30" max="45"></div>
-        </div>
-        <label class="switch"><input type="checkbox" id="g-wp" ${g.waterproof?"checked":""}> Étanche à la pluie</label>
+        <label class="switch"><input type="checkbox" id="g-mod" ${modular?"checked":""}> Modulable (3 en 1, doublures amovibles)</label>
+        ${modular?`
+          <p class="hint">Une ligne par façon de la porter, avec les températures où tu es bien en roulant. L'appli choisit la bonne selon la météo.</p>
+          <div class="mode-head"><span>Configuration</span><span>Mini °C</span><span>Maxi °C</span><span>Étanche</span><span></span></div>
+          <div class="modes">${g.modes.map((m,i)=>`<div class="mode">
+            <input type="text" id="gm-n-${i}" value="${esc(m.name)}" maxlength="30" aria-label="Nom de la configuration">
+            <input type="number" inputmode="numeric" id="gm-a-${i}" value="${m.tMin}" aria-label="Mini">
+            <input type="number" inputmode="numeric" id="gm-b-${i}" value="${m.tMax}" aria-label="Maxi">
+            <label><input type="checkbox" id="gm-w-${i}" ${m.waterproof?"checked":""}></label>
+            <button class="icon-btn" data-rmmode="${i}" aria-label="Retirer cette configuration">✕</button></div>`).join("")}</div>
+          <button class="btn btn-ghost" id="g-addmode">+ Ajouter une configuration</button>`
+        :`
+          <p class="hint">Températures entre lesquelles tu es bien avec cet équipement, en roulant.</p>
+          <div class="row2">
+            <div class="field"><label for="g-min">Mini (°C)</label><input type="number" inputmode="numeric" id="g-min" value="${g.tMin}" min="-30" max="45"></div>
+            <div class="field"><label for="g-max">Maxi (°C)</label><input type="number" inputmode="numeric" id="g-max" value="${g.tMax}" min="-30" max="45"></div>
+          </div>
+          <label class="switch"><input type="checkbox" id="g-wp" ${g.waterproof?"checked":""}> Étanche à la pluie</label>`}
         <label class="switch"><input type="checkbox" id="g-heat" ${g.heated?"checked":""}> Chauffant</label>
       </div>
       <div class="field"><label for="g-note">Note (facultatif)</label><input type="text" id="g-note" value="${esc(g.note)}" maxlength="80" placeholder="Ex. : batterie à recharger"></div>
@@ -1342,15 +1524,23 @@ function renderGearEdit(){
         <div class="bar"><button class="btn btn-danger" id="g-delyes">Oui, supprimer</button><button class="btn btn-ghost" id="g-delno">Annuler</button></div></div>`:""}
     </div>`;
   const $=id=>document.getElementById(id);
-  const read=()=>{ g.name=$("g-name").value.trim(); g.cat=$("g-cat").value; g.tMin=Number($("g-min").value); g.tMax=Number($("g-max").value);
-    g.waterproof=$("g-wp").checked; g.heated=$("g-heat").checked; g.note=$("g-note").value.trim(); };
+  const read=()=>{
+    g.name=$("g-name").value.trim(); g.cat=$("g-cat").value; g.heated=$("g-heat").checked; g.note=$("g-note").value.trim();
+    if(Array.isArray(g.modes)) g.modes=g.modes.map((m,i)=>({name:$("gm-n-"+i).value.trim()||`Configuration ${i+1}`, tMin:Number($("gm-a-"+i).value), tMax:Number($("gm-b-"+i).value), waterproof:$("gm-w-"+i).checked}));
+    else { g.tMin=Number($("g-min").value); g.tMax=Number($("g-max").value); g.waterproof=$("g-wp").checked; }
+  };
   const leave=()=>{ state.gearDraft=null; state.view="list"; state.tab="equipement"; render(); };
   $("back").onclick=leave;
+  $("g-mod").onchange=e=>{ read(); if(e.target.checked){ g.modes=g.cat==="Haut"||g.cat==="Bas" ? DEFAULT_MODES() : [{name:"Configuration 1",tMin:g.tMin,tMax:g.tMax,waterproof:!!g.waterproof}]; } else { syncModes(g); delete g.modes; } render(); };
+  if($("g-addmode")) $("g-addmode").onclick=()=>{ read(); g.modes.push({name:`Configuration ${g.modes.length+1}`, tMin:5, tMax:20, waterproof:false}); render(); };
+  app.querySelectorAll("[data-rmmode]").forEach(b=>b.onclick=()=>{ read(); g.modes.splice(+b.dataset.rmmode,1); if(!g.modes.length){ delete g.modes; } render(); });
   $("g-save").onclick=()=>{
     read();
     if(!g.name){ toast("Donne un nom à cet équipement"); return; }
-    if(!Number.isFinite(g.tMin)||!Number.isFinite(g.tMax)){ toast("Indique les températures mini et maxi"); return; }
-    if(g.tMin>g.tMax) [g.tMin,g.tMax]=[g.tMax,g.tMin];
+    const ranges = g.modes || [g];
+    if(ranges.some(m=>!Number.isFinite(m.tMin)||!Number.isFinite(m.tMax))){ toast("Indique les températures mini et maxi"); return; }
+    ranges.forEach(m=>{ if(m.tMin>m.tMax) [m.tMin,m.tMax]=[m.tMax,m.tMin]; });
+    syncModes(g);
     const i=state.gear.findIndex(x=>x.id===g.id); if(i>=0) state.gear[i]=g; else state.gear.push(g);
     if(saveGear()){ leave(); toast("Équipement enregistré"); }
   };
@@ -1360,7 +1550,47 @@ function renderGearEdit(){
 }
 
 /* ---------- divers ---------- */
-let tt; function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,2200);}
+let tt;
+function toast(msg, action){
+  const t=document.getElementById("toast"); t.textContent="";
+  const s=document.createElement("span"); s.textContent=msg; t.appendChild(s);
+  if(action){ const b=document.createElement("button"); b.className="toast-btn"; b.textContent=action.label; b.onclick=()=>{ t.hidden=true; clearTimeout(tt); action.fn(); }; t.appendChild(b); }
+  t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true, action?6000:2200);
+}
+/* ---------- glisser vers la gauche pour supprimer ---------- */
+const swipeWrap = (id, html) => `<div class="swipe" data-swipe="${esc(id)}"><button class="swipe-del" data-swipedel="${esc(id)}" tabindex="-1">Supprimer</button>${html}</div>`;
+function closeSwipes(except){ app.querySelectorAll(".swipe.open").forEach(w=>{ if(w!==except) w.classList.remove("open"); }); }
+// renvoie true si le geste était un glissement (le toucher ne doit pas ouvrir la carte)
+function swipeGuard(el){ const w=el.closest(".swipe"); if(!w) return false; if(w.dataset.moved==="1"){ w.dataset.moved=""; return true; } if(w.classList.contains("open")){ w.classList.remove("open"); return true; } closeSwipes(); return false; }
+function bindSwipes(){
+  app.querySelectorAll(".swipe").forEach(w=>{
+    const card=w.querySelector(".card"); let x0=0, y0=0, dx=0, drag=false, active=false;
+    w.addEventListener("pointerdown",e=>{ if(e.target.closest(".swipe-del")) return; active=true; drag=false; x0=e.clientX; y0=e.clientY; dx=0; });
+    w.addEventListener("pointermove",e=>{
+      if(!active) return;
+      const mx=e.clientX-x0, my=e.clientY-y0;
+      if(!drag){ if(Math.abs(mx)>10 && Math.abs(mx)>Math.abs(my)*1.3){ drag=true; closeSwipes(w); w.classList.add("dragging"); } else if(Math.abs(my)>10){ active=false; return; } else return; }
+      dx=mx; const base=w.classList.contains("open")?-104:0;
+      card.style.transform=`translateX(${Math.max(-140,Math.min(0,base+dx))}px)`;
+    });
+    const end=()=>{
+      if(!active) return; active=false;
+      if(!drag) return;
+      const base=w.classList.contains("open")?-104:0, pos=base+dx;
+      w.classList.remove("dragging"); card.style.transform="";
+      w.classList.toggle("open", pos<-52);
+      w.dataset.moved="1"; setTimeout(()=>{ w.dataset.moved=""; },350);
+    };
+    w.addEventListener("pointerup",end); w.addEventListener("pointercancel",end); w.addEventListener("pointerleave",end);
+  });
+  app.querySelectorAll("[data-swipedel]").forEach(b=>b.onclick=()=>removeRoute(b.dataset.swipedel));
+}
+function removeRoute(id){
+  const i=state.routes.findIndex(r=>r.id===id); if(i<0) return;
+  const [gone]=state.routes.splice(i,1); save(); render();
+  toast(`« ${gone.name||"Sans nom"} » supprimé`, {label:"Annuler", fn:()=>{ state.routes.splice(Math.min(i,state.routes.length),0,gone); save(); render(); toast("Restauré"); }});
+}
+
 const app=document.getElementById("app");
 function renderView(){
   if(state.view==="edit") return renderEditor();
