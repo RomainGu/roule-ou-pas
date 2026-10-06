@@ -222,6 +222,16 @@ a.btn{text-decoration:none;color:var(--ink)}
 .progress{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
 .progress span{display:block;height:100%;background:var(--accent);transition:width .3s}
 .fab-row .btn{padding:13px 14px;font-size:15px}
+.info-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.info-row:first-of-type{border-top:0}
+.info-row > div{min-width:0;flex:1}
+.info-row .k{font-weight:600}
+.info-row .tag{flex:0 0 auto;font:700 12px/1 var(--display);text-transform:uppercase;letter-spacing:.04em;border-radius:6px;padding:5px 7px;background:var(--bg);color:var(--muted)}
+.info-row .tag.stop{background:var(--danger);color:var(--surface)}
+.info-row .tag.warn{background:var(--warn);color:var(--accent-ink)}
+.info-row .tag.ok{background:var(--ok);color:var(--surface)}
+.linkrow{display:flex;flex-wrap:wrap;gap:8px;font-size:14px}
+.linkrow a{color:var(--ink)}
 .seed{border:2px solid var(--accent);background:var(--surface);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
 @media (prefers-reduced-motion:no-preference){.card{transition:transform .12s}.card:active{transform:scale(.985)}}
 </style>
@@ -446,6 +456,11 @@ function mountMaps(){
           .bindTooltip(p.name,{direction:"top",offset:[0,-6]});
       });
     }
+    const A=interactive && an.cache[rkey(route)];
+    if(A){
+      A.stations.forEach(x=>L.circleMarker([x.lat,x.lon],{radius:4,color:ink,weight:1.5,fillColor:"#ffffff",fillOpacity:1}).addTo(map).bindTooltip("Station · "+x.name,{direction:"top"}));
+      A.closures.forEach(x=>L.circleMarker([x.lat,x.lon],{radius:6,color:ink,weight:2,fillColor:lvlColor[2],fillOpacity:1}).addTo(map).bindTooltip(`${x.name} · fermée ${fmtPeriod(x.p)}`,{direction:"top"}));
+    }
     map.fitBounds(L.latLngBounds(line),{padding:[18,18]});
     liveMaps.push(map);
     if(!hasGeom && !route.composite) ensureGeom(route);
@@ -453,7 +468,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.06-5";
+const APP_VERSION="2026.10.06-6";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -643,7 +658,7 @@ function wxFoot(w){
 
 /* ---------- verdict & tenue ---------- */
 const RULES_KEY="rouleoupas.rules.v1";
-const DEFAULT_RULES={rainWarn:0.3, rainStop:4, probWarn:60, coldWarn:4, coldStop:1, gustWarn:50, gustStop:75, visWarn:1000, visStop:200, heatWarn:33, rideSpeed:0, pauseEvery:105, pauseLen:15};
+const DEFAULT_RULES={rainWarn:0.3, rainStop:4, probWarn:60, coldWarn:4, coldStop:1, gustWarn:50, gustStop:75, visWarn:1000, visStop:200, heatWarn:33, rideSpeed:0, pauseEvery:105, pauseLen:15, tank:19, cons:5.5, fuelMargin:50};
 const RULE_FIELDS=[
   ["Pluie", [["rainWarn","Prudence dès","mm/h",0.1],["rainStop","Pas aujourd'hui dès","mm/h",0.5],["probWarn","Prudence si risque d'averse ≥","%",5]]],
   ["Froid (température de l'air)", [["coldWarn","Prudence à","°C ou moins",1],["coldStop","Pas aujourd'hui à","°C ou moins",1]]],
@@ -651,6 +666,7 @@ const RULE_FIELDS=[
   ["Brouillard", [["visWarn","Prudence si visibilité <","m",100],["visStop","Pas aujourd'hui si visibilité <","m",50]]],
   ["Chaleur", [["heatWarn","Prudence dès","°C",1]]],
   ["Pauses", [["pauseEvery","Une pause toutes les","min de route",15],["pauseLen","Durée d'une pause","min",5]]],
+  ["Carburant", [["tank","Réservoir","litres",0.5],["cons","Consommation","L/100 km",0.1],["fuelMargin","Marge à garder","km",10]]],
 ];
 const VERDICT=[{label:"Roule",cls:"go"},{label:"Prudence",cls:"warn"},{label:"Pas aujourd'hui",cls:"stop"}];
 function verdictOf(g){
@@ -842,6 +858,7 @@ function renderRules(){
       <p class="hint">Valeurs les plus défavorables sur ta plage horaire et sur tout le trajet. Orage, neige et pluie verglaçante donnent toujours « Pas aujourd'hui ».</p>
       ${RULE_FIELDS.map(([title,fields])=>`<div class="panel"><h3>${esc(title)}</h3>
         ${title==="Pauses"?`<p class="hint">Ajoutées aux heures de passage, pour que la météo corresponde au moment où tu passes vraiment. Mets 0 pour ne pas en compter.</p>`:""}
+        ${title==="Carburant"?`<p class="hint">Sert à calculer ton autonomie et les pleins à faire. Mets la consommation réelle de ta moto chargée (en duo avec bagages, elle augmente).</p>`:""}
         ${fields.map(([k,lbl,unit,step])=>`<div class="rule"><label for="r-${k}">${esc(lbl)}</label>
           <span class="rule-in"><input type="number" inputmode="decimal" id="r-${k}" value="${R[k]}" step="${step}"><small>${esc(unit)}</small></span></div>`).join("")}
       </div>`).join("")}
@@ -858,6 +875,7 @@ function renderRules(){
     for(const k of Object.keys(DEFAULT_RULES)){ const el=document.getElementById("r-"+k); if(!el) continue; const v=Number(String(el.value).replace(",",".")); if(el.value!=="" && Number.isFinite(v)) next[k]=v; }
     if(next.rainStop<next.rainWarn || next.gustStop<next.gustWarn || next.coldStop>next.coldWarn || next.visStop>next.visWarn){ toast("Le seuil « Pas aujourd'hui » doit être plus sévère que « Prudence »"); return; }
     if(next.pauseEvery>0 && next.pauseEvery<30){ toast("Mets au moins 30 min entre deux pauses, ou 0"); return; }
+    if(!(next.tank>0) || !(next.cons>0)){ toast("Indique la taille du réservoir et la consommation"); return; }
     state.rules=next; if(saveRules()) toast("Réglages enregistrés");
   };
   document.getElementById("r-reset").onclick=()=>{ state.rules={...DEFAULT_RULES}; saveRules(); render(); toast("Valeurs par défaut rétablies"); };
@@ -1006,6 +1024,224 @@ function bindNav(){
   app.querySelectorAll("[data-navreset]").forEach(b=>b.onclick=()=>{ navSet(b.dataset.navreset,0); render(); });
 }
 
+/* ---------- carburant, ferries, routes fermées ---------- */
+const AN_KEY="rouleoupas.analysis.v1";
+const an={cache:{}, pending:{}, err:{}};
+try{ an.cache=JSON.parse(localStorage.getItem(AN_KEY))||{}; }catch(e){}
+function saveAn(){
+  const keys=Object.keys(an.cache);
+  if(keys.length>40) keys.sort((a,b)=>an.cache[a].at-an.cache[b].at).slice(0,keys.length-40).forEach(k=>delete an.cache[k]);
+  try{ localStorage.setItem(AN_KEY, JSON.stringify(an.cache)); }catch(e){}
+}
+const hasGeom = r => !!(r.geom && r.geom.length>1 && r.geomKey===rkey(r));
+function geomCum(g){ const c=[0]; for(let i=1;i<g.length;i++) c.push(c[i-1]+haversine({lat:g[i-1][0],lon:g[i-1][1]},{lat:g[i][0],lon:g[i][1]})); return c; }
+function lineOf(g, c, stepKm, max){
+  const st=Math.max(stepKm, c.at(-1)/max), out=[g[0]]; let nx=st;
+  for(let i=1;i<g.length;i++) if(c[i]>=nx){ out.push(g[i]); nx=c[i]+st; }
+  out.push(g.at(-1));
+  return out.map(p=>p[0].toFixed(5)+","+p[1].toFixed(5)).join(",");
+}
+// position (km le long du tracé) du point du tracé le plus proche
+function kmOn(g, c, lat, lon){
+  const k=Math.cos(lat*Math.PI/180); let bi=0, bd=1e9;
+  for(let i=0;i<g.length;i++){ const d=(g[i][0]-lat)**2+((g[i][1]-lon)*k)**2; if(d<bd){ bd=d; bi=i; } }
+  return c[bi];
+}
+const MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+const MOIS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
+// « no @ (Nov 1 - Apr 30) », « no @ Dec-May » → période de fermeture
+function closedPeriod(cond){
+  const m=String(cond).match(/no\s*@\s*\(?\s*([A-Za-z]{3})[a-z]*\.?\s*(\d{1,2})?\s*-\s*([A-Za-z]{3})[a-z]*\.?\s*(\d{1,2})?/i);
+  if(!m) return null;
+  const a=MONTHS[m[1].toLowerCase()], b=MONTHS[m[3].toLowerCase()];
+  return a==null||b==null ? null : {a, ad:+m[2]||1, b, bd:+m[4]||31};
+}
+function isClosedOn(p, iso){
+  const [,mo,d]=iso.split("-").map(Number), v=(mo-1)*100+d, s0=p.a*100+p.ad, e0=p.b*100+p.bd;
+  return s0<=e0 ? (v>=s0&&v<=e0) : (v>=s0||v<=e0);
+}
+const fmtPeriod = p => p.ad===1&&p.bd===31 ? `de ${MOIS[p.a]} à ${MOIS[p.b]}` : `du ${p.ad} ${MOIS[p.a]} au ${p.bd} ${MOIS[p.b]}`;
+const nameScore = n => /vegen|veien|vägen|route|road|strasse|straße|strada|col |pass|fjell/i.test(n) ? 3 : /^\d+$|^[A-Z]{1,2}\d/.test(n) ? 2 : /bru|brua|bridge|pont|tunnel/i.test(n) ? 0 : 1;
+async function fetchAnalysis(route){
+  const g=route.geom, c=geomCum(g);
+  const fine=lineOf(g,c,0.4,1200), coarse=lineOf(g,c,3,300);
+  const q=`[out:json][timeout:120];(nwr["amenity"="fuel"](around:1500,${coarse});way["highway"][~"^(motor_vehicle|motorcar|motorcycle|access|vehicle):conditional$"~"no"](around:120,${fine}););out center tags;`;
+  const r=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"data="+encodeURIComponent(q)});
+  if(!r.ok) throw new Error(r.status);
+  const els=(await r.json()).elements||[], stations=[], raw=[];
+  for(const e of els){
+    const lat=e.lat??e.center?.lat, lon=e.lon??e.center?.lon, t=e.tags||{}; if(lat==null) continue;
+    const km=+kmOn(g,c,lat,lon).toFixed(1);
+    if(t.amenity==="fuel"){ stations.push({km, name:(t.brand||t.name||"Station").slice(0,40), lat:+lat.toFixed(5), lon:+lon.toFixed(5)}); continue; }
+    const cond=t["motorcycle:conditional"]||t["motor_vehicle:conditional"]||t["motorcar:conditional"]||t["vehicle:conditional"]||t["access:conditional"]||"";
+    const p=closedPeriod(cond); if(!p) continue;
+    raw.push({km, name:(t.name||t.ref||"Route de montagne").slice(0,50), p, lat:+lat.toFixed(5), lon:+lon.toFixed(5)});
+  }
+  // un même col apparaît en plusieurs tronçons (et ponts) : on garde un nom par période et par zone
+  raw.sort((a,b)=>a.km-b.km);
+  const closures=[];
+  for(const x of raw){
+    const same=closures.find(y=>Math.abs(y.km-x.km)<25 && y.p.a===x.p.a && y.p.b===x.p.b);
+    if(!same) closures.push(x); else if(nameScore(x.name)>nameScore(same.name)) Object.assign(same,{name:x.name, km:x.km, lat:x.lat, lon:x.lon});
+  }
+  const seen=new Set(), st=stations.sort((a,b)=>a.km-b.km).filter(x=>{ const k=x.name+"|"+Math.round(x.km*2); if(seen.has(k)) return false; seen.add(k); return true; });
+  return {at:Date.now(), stations:st, closures};
+}
+function getAnalysis(route){
+  if(!ready(route) || !hasGeom(route)) return {data:null, waitGeom:true};
+  const k=rkey(route), c=an.cache[k];
+  if(!c && !an.pending[k] && !(an.err[k] && Date.now()-an.err[k]<120000)){
+    an.pending[k]=true;
+    fetchAnalysis(route)
+      .then(res=>{ an.cache[k]=res; delete an.err[k]; saveAn(); })
+      .catch(()=>{ an.err[k]=Date.now(); })
+      .finally(()=>{ delete an.pending[k]; if(!editing()) render(); });
+  }
+  return {data:c||null, loading:!!an.pending[k], error:!!an.err[k]};
+}
+const autonomy = () => Math.max(20, state.rules.tank/state.rules.cons*100 - state.rules.fuelMargin);
+function fuelPlan(route, data){
+  const g=route.geom, c=geomCum(g), pts=route.points;
+  const ferries=legsFor(route,false).map((l,i)=>l.ferry?[kmOn(g,c,pts[i].lat,pts[i].lon), kmOn(g,c,pts[i+1].lat,pts[i+1].lon)].sort((a,b)=>a-b):null).filter(Boolean);
+  const road = k => k - ferries.reduce((s,[a,b])=>s+Math.max(0,Math.min(k,b)-a),0);
+  const total=road(c.at(-1)), A=autonomy();
+  const st=data.stations.map(x=>({...x, rk:road(x.km)})).sort((a,b)=>a.rk-b.rk);
+  const marks=[0,...st.map(x=>x.rk),total]; let gap={len:0,from:0,to:0};
+  for(let i=1;i<marks.length;i++) if(marks[i]-marks[i-1]>gap.len) gap={len:marks[i]-marks[i-1], from:marks[i-1], to:marks[i]};
+  const stops=[]; let pos=0, stuck=false;
+  while(total-pos>A){
+    const reach=st.filter(x=>x.rk>pos+5 && x.rk<=pos+A);
+    if(!reach.length){ stuck=true; break; }
+    const pick=reach.at(-1); stops.push(pick); pos=pick.rk;
+  }
+  return {total, A, stops, gap, stuck, count:st.length};
+}
+function infoPanels(route, date, startMin){
+  if(!ready(route)) return "";
+  const tl=timeline(route,false,startMin), legs=legsFor(route,false);
+  const ferries=legs.map((l,i)=>l.ferry?{from:route.points[i], to:route.points[i+1], min:l.min, at:tl[i].min}:null).filter(Boolean);
+  const a=getAnalysis(route);
+  // carburant
+  let fuel;
+  if(a.waitGeom) fuel=`<p class="hint">Calcul du tracé en cours…</p>`;
+  else if(!a.data) fuel=`<p class="${a.error?"err":"hint"}">${a.error?"Recherche des stations impossible pour le moment.":"Recherche des stations-service le long de la route…"}</p>`;
+  else{
+    const f=fuelPlan(route,a.data);
+    fuel=`<p class="hint">Autonomie ≈ ${fmtInt(f.A)} km (${String(state.rules.tank).replace(".",",")} L à ${String(state.rules.cons).replace(".",",")} L/100, marge ${state.rules.fuelMargin} km), départ le plein fait. ${f.count} station${f.count>1?"s":""} trouvée${f.count>1?"s":""} à moins de 1,5 km de la route.</p>
+      ${f.gap.len>f.A?`<div class="flag">Aucune station sur ${fmtInt(f.gap.len)} km (km ${fmtInt(f.gap.from)} → ${fmtInt(f.gap.to)}) : plus que ton autonomie. Prévois un bidon ou un détour.</div>`
+        : f.gap.len>f.A*0.8?`<div class="flag">Plus long trou sans station : ${fmtInt(f.gap.len)} km (km ${fmtInt(f.gap.from)} → ${fmtInt(f.gap.to)}). Ne laisse pas passer le plein d'avant.</div>`:""}
+      ${f.total<=f.A?`<p><b>Pas besoin de plein</b> sur ces ${fmtInt(f.total)} km.</p>`
+        :`<div class="navlist">${f.stops.map((x,i)=>`<a class="navbtn" href="${wazeUrl(x)}" target="_blank" rel="noopener"><span>Plein ${i+1} · ${esc(x.name)} · km ${fmtInt(x.rk)}</span><small>Waze</small></a>`).join("")}</div>
+          ${f.stuck?`<p class="err">Impossible de tenir sans plein supplémentaire hors de la route.</p>`:""}`}`;
+  }
+  // ferries + routes fermées
+  const closures=a.data?a.data.closures:[];
+  const rows=[
+    ...ferries.map(f=>`<div class="info-row"><span class="tag">Ferry</span><div><div class="k">${esc(f.from.name)} → ${esc(f.to.name)}</div><div class="hint">${fmtDur(f.min)} comptées, arrivée au port vers ${fmtTime(f.at)}. Réserve et vérifie l'horaire de départ.</div></div></div>`),
+    ...closures.map(x=>{ const closed=isClosedOn(x.p,date); return `<div class="info-row"><span class="tag ${closed?"stop":"ok"}">${closed?"Fermée":"Ouverte"}</span><div><div class="k">${esc(x.name)} · km ${fmtInt(x.km)}</div><div class="hint">Fermée en général ${fmtPeriod(x.p)}${closed?" : ce jour-là, la route est en principe fermée. Prévois un autre passage.":", selon la neige : vérifie avant de partir."}</div></div></div>`; })];
+  const countries=route.points.map(p=>p.ctx||"").join(" ");
+  const links=[[/Norvège|Norway|Norge/i,"Norvège","https://www.vegvesen.no/trafikk/"],[/France/i,"France","https://www.bison-fute.gouv.fr/"],[/Suisse|Schweiz|Switzerland/i,"Suisse","https://www.alpen-paesse.ch/"],[/Suède|Sweden|Sverige/i,"Suède","https://www.trafikverket.se/trafikinformation/"]].filter(([re])=>re.test(countries));
+  const routesPanel = rows.length||links.length ? `<div class="panel"><h3>Ferries et routes</h3>
+      ${rows.join("")||`<p class="hint">${a.data?"Aucun ferry ni route à fermeture saisonnière sur ce trajet.":"Recherche des routes à fermeture saisonnière…"}</p>`}
+      ${links.length?`<div class="linkrow"><span class="hint">État des routes en direct :</span>${links.map(([,n,u])=>`<a href="${u}" target="_blank" rel="noopener">${n}</a>`).join("")}</div>`:""}
+      <p class="hint">Fermetures saisonnières d'après OpenStreetMap : les dates réelles dépendent de la neige.</p>
+    </div>` : "";
+  return `<div class="panel"><h3>Carburant</h3>${fuel}</div>${routesPanel}`;
+}
+
+/* ---------- partage avec le groupe ---------- */
+function b64uEnc(bytes){ let s=""; for(let i=0;i<bytes.length;i+=0x8000) s+=String.fromCharCode.apply(null, bytes.subarray(i,i+0x8000)); return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function b64uDec(t){ t=t.replace(/-/g,"+").replace(/_/g,"/"); while(t.length%4) t+="="; return Uint8Array.from(atob(t), ch=>ch.charCodeAt(0)); }
+function shareable(r){
+  const strip=o=>{ const c={...o}; ["legs","legsKey","legsSource","geom","geomKey","isDefault","template","source"].forEach(k=>delete c[k]); return c; };
+  return isVoyage(r) ? {...strip(r), days:r.days.map(strip)} : strip(r);
+}
+async function encodeShare(r){
+  const bytes=new TextEncoder().encode(JSON.stringify({v:1, r:shareable(r)}));
+  if(window.CompressionStream){ try{ const st=new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw")); return "1."+b64uEnc(new Uint8Array(await new Response(st).arrayBuffer())); }catch(e){} }
+  return "0."+b64uEnc(bytes);
+}
+async function decodeShare(code){
+  const ver=code.slice(0,1); let bytes=b64uDec(code.slice(2));
+  if(ver==="1"){ const st=new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw")); bytes=new Uint8Array(await new Response(st).arrayBuffer()); }
+  const o=JSON.parse(new TextDecoder().decode(bytes));
+  if(!o || !o.r || !(isVoyage(o.r) ? Array.isArray(o.r.days) : Array.isArray(o.r.points))) throw new Error("Lien de partage illisible.");
+  return o.r;
+}
+const shareUrls={};
+// le lien est préparé à l'affichage : le partage iPhone doit partir directement du toucher
+function prepareShare(r){
+  const sig=JSON.stringify(shareable(r));
+  if(shareUrls[r.id] && shareUrls[r.id].sig===sig) return shareUrls[r.id].url;
+  shareUrls[r.id]={sig, url:null};
+  encodeShare(r).then(code=>{ shareUrls[r.id].url=location.origin+location.pathname+"#p="+code; const b=document.getElementById("share"); if(b) b.disabled=false; });
+  return null;
+}
+function shareSummary(r){
+  if(isVoyage(r)){
+    const t=voyageTotals(r);
+    return `${r.name} · ${dayRange(r)} · ${fmtKm(t.km)}\n`+r.days.map((d,i)=>{
+      if(!ready(d)) return `J${i+1} ${fmtDate(d.date)} : à compléter`;
+      const tl=timeline(d,false,toMin(d.aller.start)), dv=dayVerdict(d);
+      return `J${i+1} ${fmtDate(d.date)} : ${d.points[0].name} → ${d.points.at(-1).name}, ${fmtKm(totals(d).km)}, départ ${fmtTime(tl[0].min)}${dv.cls?" · "+dv.label:""}`;
+    }).join("\n");
+  }
+  let line=`${r.name} : ${r.points.map(p=>p.name).join(" → ")} (${fmtKm(totals(r).km)})`;
+  const w=getWx(r,state.day||todayIso());
+  if(w.data){ const v=verdictOf(sampleTrip(r,false,r.aller,w.data).agg); line+=`\n${dayLabel(state.day||todayIso())}, départ ${r.aller.start} : ${VERDICT[v.lvl].label}${v.reasons[0]?" ("+v.reasons[0].t+")":""}`; }
+  return line;
+}
+function shareButton(r){ return `<button class="btn btn-ghost" id="share" ${prepareShare(r)?"":"disabled"}>Partager avec le groupe</button>`; }
+function bindShare(r){
+  const b=document.getElementById("share"); if(!b) return;
+  b.onclick=()=>{
+    const url=shareUrls[r.id]&&shareUrls[r.id].url; if(!url) return;
+    const text=shareSummary(r)+"\n\nOuvre le lien pour voir la carte, la météo et la navigation :";
+    if(navigator.share){ navigator.share({title:r.name, text, url}).catch(()=>{}); return; }
+    (navigator.clipboard?navigator.clipboard.writeText(text+"\n"+url):Promise.reject()).then(()=>toast("Lien copié : colle-le dans ta conversation de groupe")).catch(()=>toast("Copie impossible sur cet appareil"));
+  };
+}
+function addShared(src){
+  const r=JSON.parse(JSON.stringify(src)), id=(isVoyage(r)?"v":"r")+Date.now().toString(36);
+  r.id=id; r.isDefault=false;
+  if(isVoyage(r)) r.days=r.days.map(d=>{ delete d.id; return migrateDay(d); });
+  migrate(r);
+  state.routes.push(r); save();
+  if(isVoyage(r)){ openVoyage(id); prefetchVoyage(id); } else { openDetail(id); ensureGeom(r); }
+  toast("Ajouté à tes trajets");
+}
+async function checkIncoming(){
+  const h=location.hash; if(!h.startsWith("#p=")) return;
+  try{
+    const r=await decodeShare(h.slice(3));
+    state.incoming=r; state.incomingUrl=location.href;
+    history.replaceState(null,"",location.pathname); state.view="incoming"; render();
+  }catch(e){ history.replaceState(null,"",location.pathname); toast("Lien de partage illisible"); }
+}
+function renderIncoming(){
+  const r=state.incoming; if(!r){ state.view="list"; return renderList(); }
+  const v=isVoyage(r), standalone=!!navigator.standalone;
+  app.innerHTML=`
+    <header class="top"><h1 class="brand">Roule <span>ou pas</span></h1></header>
+    <div class="stack">
+      <div class="eyebrow">Trajet partagé avec toi</div>
+      <div class="panel"><h2>${esc(r.name||"Trajet")}</h2>
+        ${v?`<p class="hint">${r.days.length} jour${r.days.length>1?"s":""} · ${esc(dayRange(r))}</p>
+          <div class="dayrows">${r.days.map((d,i)=>`<div class="dayrow"><div><div class="t">J${i+1} · ${esc(fmtDate(d.date))}</div><div class="s">${esc((d.points||[]).map(p=>p.name).join(" → "))}</div></div></div>`).join("")}</div>`
+          :`<p>${esc(r.points.map(p=>p.name).join(" → "))}</p>`}
+        <button class="btn btn-primary" id="in-add">Ajouter à mes trajets</button>
+        <button class="btn btn-ghost" id="in-no">Ignorer</button>
+      </div>
+      ${standalone?"":`<div class="panel"><h3>Tu as l'appli sur ton écran d'accueil ?</h3>
+        <p class="hint">Elle garde ses trajets à part de Safari. Copie ce lien, ouvre l'appli, touche « + Road trip » et colle-le dans la case 3.</p>
+        <button class="btn btn-ghost" id="in-copy">Copier le lien</button></div>`}
+    </div>`;
+  document.getElementById("in-add").onclick=()=>{ state.incoming=null; addShared(r); };
+  document.getElementById("in-no").onclick=()=>{ state.incoming=null; state.view="list"; render(); };
+  const c=document.getElementById("in-copy");
+  if(c) c.onclick=()=>{ (navigator.clipboard?navigator.clipboard.writeText(state.incomingUrl):Promise.reject()).then(()=>toast("Lien copié")).catch(()=>toast("Copie impossible : garde le message d'origine")); };
+}
+
 /* ---------- vue trajet (météo détaillée) ---------- */
 function openDetail(id){
   const r=state.routes.find(x=>x.id===id);
@@ -1040,13 +1276,14 @@ function renderDetail(force){
       <div class="panel">${body}</div>
       ${navPanel(r,false,r.retour.on?"Navigation · aller":"Navigation")}
       ${r.retour.on?navPanel(r,true,"Navigation · retour"):""}
-      <div class="bar"><button class="btn btn-ghost" id="edit">Modifier l'itinéraire</button></div>
+      ${infoPanels(r, state.day, toMin(r.aller.start))}
+      <div class="bar">${shareButton(r)}<button class="btn btn-ghost" id="edit">Modifier l'itinéraire</button></div>
     </div>`;
   document.getElementById("back").onclick=()=>{state.view="list";render();};
   document.getElementById("refresh").onclick=()=>{ const r=state.routes.find(x=>x.id===state.detailId); if(r) getWx(r,state.day,true); render(); };
   document.getElementById("edit").onclick=()=>openEditor(r.id);
   app.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>{state.day=b.dataset.day;render();});
-  bindNav();
+  bindNav(); bindShare(r);
 }
 
 /* ---------- vue road trip ---------- */
@@ -1095,13 +1332,14 @@ function renderVoyage(force){
       ${d&&d.note?`<div class="note">${esc(d.note)}</div>`:""}
       <div class="panel">${body}</div>
       ${d?navPanel(d,false,`Navigation · jour ${state.vday+1}`):""}
-      <div class="bar"><button class="btn btn-ghost" id="edit">Modifier le road trip</button></div>
+      ${d&&ready(d)?infoPanels(d, d.date, toMin(d.aller.start)):""}
+      <div class="bar">${shareButton(v)}<button class="btn btn-ghost" id="edit">Modifier le road trip</button></div>
     </div>`;
   document.getElementById("back").onclick=()=>{ state.view="list"; render(); };
   document.getElementById("refresh").onclick=()=>{ if(d&&ready(d)) getWx(d,d.date,true); render(); };
   document.getElementById("edit").onclick=()=>openVoyageEditor(v.id);
   app.querySelectorAll("[data-vday]").forEach(b=>b.onclick=()=>{ state.vday=+b.dataset.vday; render(); });
-  bindNav();
+  bindNav(); bindShare(v);
 }
 
 /* ---------- road trip préparé : Bourges → Cap Nord ---------- */
@@ -1336,7 +1574,7 @@ function claudePanel(){
     <label class="switch"><input type="checkbox" id="cf-moto" ${f.moto?"checked":""}> Éviter autoroutes et péages</label>
     <div class="field"><label for="cf-wish">Envies</label><textarea id="cf-wish" placeholder="Ex. : routes sinueuses, cols, bord de mer, pas plus de 6 h de route, nuits en camping…">${esc(f.wish)}</textarea></div>
     <div class="bar"><button class="btn btn-primary" id="cf-copy">1. Copier la demande</button><a class="btn btn-ghost" href="https://claude.ai/new" target="_blank" rel="noopener">2. Ouvrir Claude</a></div>
-    <div class="field"><label for="cf-answer">3. Colle ici la réponse de Claude</label><textarea id="cf-answer" spellcheck="false" placeholder="La réponse contient un bloc qui commence par {&quot;rouleoupas&quot;">${esc(f.answer)}</textarea></div>
+    <div class="field"><label for="cf-answer">3. Colle ici la réponse de Claude (ou un lien partagé par un ami)</label><textarea id="cf-answer" spellcheck="false" placeholder="La réponse contient un bloc qui commence par {&quot;rouleoupas&quot;">${esc(f.answer)}</textarea></div>
     <button class="btn btn-primary" id="cf-import">4. Ajouter ce road trip</button>
     ${state.cErr?`<p class="err">${esc(state.cErr)}</p>`:""}
   </div>`;
@@ -1360,6 +1598,8 @@ function bindClaude(onDone){
   };
   $("cf-import").onclick=async()=>{
     const f=readClaudeForm(); state.cErr="";
+    const link=(f.answer||"").match(/#p=([A-Za-z0-9._-]+)/);
+    if(link){ try{ const r=await decodeShare(link[1]); f.answer=""; state.vdraft=null; addShared(r); }catch(e){ state.cErr="Ce lien de partage est incomplet ou abîmé."; render(); } return; }
     try{
       const v=await voyageFromClaude(f.answer, f.moto);
       onDone(v); f.answer="";
@@ -1886,6 +2126,7 @@ function renderView(){
   if(state.view==="voyage") return renderVoyage();
   if(state.view==="voyage-edit") return renderVoyageEditor();
   if(state.view==="loop") return renderLoop();
+  if(state.view==="incoming") return renderIncoming();
   return state.tab==="equipement" ? renderGear() : state.tab==="reglages" ? renderRules() : renderList();
 }
 function render(){
@@ -1909,6 +2150,8 @@ function render(){
 state.rules=loadRules();
 render();
 checkUpdate();
+checkIncoming();
+window.addEventListener("hashchange",checkIncoming);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") checkUpdate(); });
 </script>
 </body>
