@@ -137,6 +137,28 @@ input[type=text],input[type=search],input[type=time]{width:100%;min-width:0;back
 .mpin{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:700 14px/1 var(--body);border:2.5px solid #0a0c0f;background:#fff;color:#0a0c0f;box-shadow:0 2px 6px rgba(0,0,0,.35)}
 .mpin.end{background:var(--accent);color:var(--accent-ink)}
 .mpin.new{background:var(--ink);color:var(--bg);border-color:var(--accent)}
+.now{display:grid;gap:10px}
+.now-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px}
+.now-head h3{margin:0}
+.now-where{font-size:13px;color:var(--muted)}
+.now-best{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;background:var(--bg);border-left:6px solid var(--ok)}
+.now-best b{font:700 24px/1.05 var(--display);letter-spacing:.02em}
+.now-best span{font-size:14px;color:var(--muted)}
+.now-best.warn{border-left-color:var(--warn)} .now-best.stop{border-left-color:var(--danger)}
+.hours{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:2px}
+.hr{height:34px;border-radius:4px;border:0;padding:0;cursor:pointer;background:var(--ok)}
+.hr.l1{background:var(--warn)} .hr.l2{background:var(--danger)}
+.hr.night{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.55) 0 3px,transparent 3px 7px)}
+.hr.past{opacity:.22}
+.hr.hbest{box-shadow:0 5px 0 -1px var(--accent)}
+.hr.sel{outline:2px solid var(--ink);outline-offset:1px}
+.hlabels{display:grid;grid-template-columns:repeat(var(--n),1fr);font-size:11px;color:var(--muted);margin-top:-2px}
+.hlabels span{text-align:left;white-space:nowrap}
+.linkbtn{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer;text-decoration:underline}
+.now-hour{font-size:14px;padding:8px 10px;border-radius:8px;background:var(--bg)}
+.seg2{display:flex;gap:4px;background:var(--bg);border-radius:9px;padding:3px}
+.seg2 button{border:0;background:transparent;padding:6px 10px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
+.seg2 button[aria-pressed="true"]{background:var(--surface);color:var(--ink)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(140px + env(safe-area-inset-bottom,0px));z-index:6;background:var(--ink);color:var(--bg);padding:10px 12px 10px 16px;border-radius:14px;font-weight:600;font-size:14px;display:flex;align-items:center;gap:12px;width:max-content;max-width:calc(100% - 32px)}
 .toast-btn{border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;border-radius:8px;padding:6px 10px;cursor:pointer;flex:0 0 auto}
 /* météo */
@@ -482,7 +504,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.11-2";
+const APP_VERSION="2026.10.11-3";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -1033,12 +1055,111 @@ function voyageCard(v){
     </div></button>`;
 }
 
+/* ---------- « Quand rouler ? » : la meilleure plage horaire autour de chez soi, sans créer de trajet ---------- */
+const HERE_KEY="rouleoupas.here.v1", H0=6, H1=22; // heures affichées : 6 h à 22 h
+const here={cache:{}, pending:{}, err:{}, gps:null, day:null, sel:null};
+try{ here.cache=JSON.parse(localStorage.getItem(HERE_KEY))||{}; }catch(e){}
+function herePlace(){ return here.gps || homePoint(); }
+function getHere(p, date){
+  const k=p.lat.toFixed(3)+","+p.lon.toFixed(3)+"|"+date, c=here.cache[k];
+  const fresh=c && Date.now()-c.at<WX_TTL, recentErr=here.err[k] && Date.now()-here.err[k]<WX_RETRY;
+  if(!fresh && !here.pending[k] && !recentErr){
+    here.pending[k]=true;
+    const vars="temperature_2m,apparent_temperature,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m,visibility";
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.lat.toFixed(4)}&longitude=${p.lon.toFixed(4)}&hourly=${vars}&daily=sunrise,sunset&timezone=auto&start_date=${date}&end_date=${date}`)
+      .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(d=>{ const h=d.hourly||{}; delete h.time; const m=t=>{ const x=(t||"").slice(11,16); return x?toMin(x):NaN; };
+        here.cache[k]={at:Date.now(), hourly:h, rise:m(d.daily?.sunrise?.[0]), set:m(d.daily?.sunset?.[0])}; delete here.err[k];
+        const t=todayIso(); for(const x in here.cache) if(x.split("|")[1]<t) delete here.cache[x];
+        try{ localStorage.setItem(HERE_KEY, JSON.stringify(here.cache)); }catch(e){} })
+      .catch(()=>{ here.err[k]=Date.now(); })
+      .finally(()=>{ delete here.pending[k]; if(!editing()) render(); });
+  }
+  return {data:c||null, loading:!!here.pending[k], error:!!here.err[k]};
+}
+// note de chaque heure avec les mêmes seuils que les trajets
+function hourCells(c, date){
+  const h=c.hourly, today=date===todayIso(), now=nowMin(), cells=[];
+  for(let i=H0;i<H1;i++){
+    const v=k=>h[k]?.[i];
+    const g={tMin:v("temperature_2m"), tMax:v("temperature_2m"), feel:v("apparent_temperature"), rain:v("precipitation"), prob:v("precipitation_probability"),
+      wind:v("wind_speed_10m"), gust:v("wind_gusts_10m"), vis:v("visibility"), code:v("weather_code"), many:false};
+    const night = Number.isFinite(c.rise) && (i*60+60<=c.rise+15 || i*60>=c.set-15);
+    cells.push({h:i, g, v:verdictOf(g), night, past: today && (i+1)*60<=now});
+  }
+  return cells;
+}
+// plus longue plage d'affilée au meilleur niveau possible, de jour et pas encore passée
+function bestWindows(cells){
+  const ok=cells.filter(c=>!c.past && !c.night);
+  if(!ok.length) return {lvl:null, list:[]};
+  const lvl=Math.min(...ok.map(c=>c.v.lvl));
+  const runs=[]; let cur=null;
+  cells.forEach(c=>{ const good=!c.past && !c.night && c.v.lvl===lvl;
+    if(good){ if(cur) cur.to=c.h+1; else cur={from:c.h, to:c.h+1}; } else if(cur){ runs.push(cur); cur=null; } });
+  if(cur) runs.push(cur);
+  runs.sort((a,b)=>(b.to-b.from)-(a.to-a.from) || a.from-b.from);
+  return {lvl, list:runs};
+}
+const hh = h => h+" h";
+function aggOf(cells){
+  const all=k=>cells.map(c=>c.g[k]).filter(Number.isFinite), worst=cells.reduce((w,c)=>!w||skyRank(c.g.code)>skyRank(w.g.code)?c:w,null);
+  return {tMin:lo(all("tMin")), tMax:hi(all("tMax")), feel:lo(all("feel")), rain:hi(all("rain")), prob:hi(all("prob")), wind:hi(all("wind")), gust:hi(all("gust")), vis:lo(all("vis")), code:worst?.g.code, many:false};
+}
+function nowPanel(){
+  const p=herePlace();
+  if(!p) return `<div class="panel now"><div class="now-head"><h3>Quand rouler ?</h3></div>
+    <p class="hint">La meilleure plage horaire de la journée, sans créer de trajet. Crée ton trajet « Maison ↔ Boulot » ou utilise ta position.</p>
+    <button class="btn btn-ghost" id="now-gps">Utiliser ma position</button></div>`;
+  const t=todayIso(), lateToday = nowMin()>=20*60;
+  const date = here.day || (lateToday ? addDays(t,1) : t);
+  const w=getHere(p,date);
+  const dayBtns=`<div class="seg2">${[t,addDays(t,1)].map(d=>`<button data-nowday="${d}" aria-pressed="${d===date}">${d===t?"Aujourd'hui":"Demain"}</button>`).join("")}</div>`;
+  const where=`<div class="now-where">${here.gps?"Autour de ta position":"Autour de "+esc(p.name)} · <button class="linkbtn" id="now-gps">${here.gps?"revenir à "+esc((homePoint()||{}).name||"la maison"):"ma position"}</button></div>`;
+  let body;
+  if(!w.data) body=`<p class="${w.error?"err":"hint"}">${w.error?"Météo indisponible pour le moment.":"Chargement de la météo heure par heure…"}</p>`;
+  else{
+    const cells=hourCells(w.data,date), B=bestWindows(cells), best=B.list[0];
+    let head;
+    if(B.lvl===null) head=`<div class="now-best stop"><b>Journée terminée</b><span>Regarde demain.</span></div>`;
+    else if(B.lvl===2) head=`<div class="now-best stop"><b>Pas aujourd'hui</b><span>${esc(cells.filter(c=>!c.past&&!c.night).map(c=>c.v.reasons[0]?.t).find(Boolean)||"Conditions défavorables toute la journée")}</span></div>`;
+    else{
+      const inBest=cells.filter(c=>c.h>=best.from&&c.h<best.to), g=aggOf(inBest);
+      const others=B.list.slice(1).filter(r=>r.to-r.from>=2).slice(0,2);
+      head=`<div class="now-best${B.lvl?" warn":""}"><b>${B.lvl?"Prudence · ":"Roule · "}${hh(best.from)} → ${hh(best.to)}</b>
+        <span>${num(g.tMin,"°")}${Math.round(g.tMax)!==Math.round(g.tMin)?" à "+num(g.tMax,"°"):""} · ${esc(SKY[g.code]??"")}${B.lvl&&verdictOf(g).reasons[0]?" · "+esc(verdictOf(g).reasons[0].t):""}${others.length?` · aussi ${others.map(r=>hh(r.from)+"–"+hh(r.to)).join(", ")}`:""}</span></div>
+        ${outfitHtml(outfitOf(g),true)}`;
+    }
+    const bestSet=new Set(best&&B.lvl<2?cells.filter(c=>c.h>=best.from&&c.h<best.to).map(c=>c.h):[]);
+    const sel=cells.find(c=>c.h===here.sel);
+    body=`${head}
+      <div class="hours" style="--n:${cells.length}">${cells.map(c=>`<button class="hr l${c.v.lvl}${c.night?" night":""}${c.past?" past":""}${bestSet.has(c.h)?" hbest":""}${here.sel===c.h?" sel":""}" data-hr="${c.h}" aria-label="${c.h} h : ${VERDICT[c.v.lvl].label}"></button>`).join("")}</div>
+      <div class="hlabels" style="--n:${cells.length}">${cells.map(c=>`<span>${c.h%3===0?c.h+"h":""}</span>`).join("")}</div>
+      ${sel?`<div class="now-hour"><b>${hh(sel.h)}–${hh(sel.h+1)} · ${VERDICT[sel.v.lvl].label}</b>${sel.night?" · de nuit":""} — ${num(sel.g.tMin,"°")} (ressenti à moto ≈ ${num(rideFeel(sel.g.tMin,50),"°")}), ${esc(SKY[sel.g.code]??"")}, pluie ${mm(sel.g.rain)} (${num(sel.g.prob," %")}), rafales ${num(sel.g.gust)} km/h${sel.v.reasons[0]?` · ${esc(sel.v.reasons[0].t)}`:""}</div>`
+        :`<p class="hint">Touche une heure pour le détail. Trait bleu : meilleure plage. Hachuré : de nuit${Number.isFinite(w.data.rise)?` (soleil ${fmtTime(w.data.rise)} → ${fmtTime(w.data.set)})`:""}. Mêmes seuils que tes trajets.</p>`}`;
+  }
+  return `<div class="panel now"><div class="now-head"><div><h3>Quand rouler ?</h3>${where}</div>${dayBtns}</div>${body}</div>`;
+}
+function bindNow(){
+  app.querySelectorAll("[data-nowday]").forEach(b=>b.onclick=()=>{ here.day=b.dataset.nowday; here.sel=null; render(); });
+  app.querySelectorAll("[data-hr]").forEach(b=>b.onclick=()=>{ const h=+b.dataset.hr; here.sel = here.sel===h ? null : h; render(); });
+  const g=document.getElementById("now-gps"); if(!g) return;
+  g.onclick=()=>{
+    if(here.gps){ here.gps=null; return render(); }
+    if(!navigator.geolocation){ toast("Position indisponible sur cet appareil"); return; }
+    g.textContent="localisation…";
+    navigator.geolocation.getCurrentPosition(pos=>{ here.gps={name:"ta position", lat:pos.coords.latitude, lon:pos.coords.longitude}; render(); },
+      ()=>{ toast("Position refusée : autorise la localisation pour Safari"); render(); }, {timeout:10000, maximumAge:600000});
+  };
+}
+
 function renderList(){
   const trips=state.routes.filter(x=>!isVoyage(x)), voyages=state.routes.filter(isVoyage);
   const def=trips.filter(x=>x.isDefault), others=trips.filter(x=>!x.isDefault);
   app.innerHTML = `
     <header class="top"><h1 class="brand">Roule <span>ou pas</span></h1></header>
     <div class="stack">
+      ${nowPanel()}
       ${def.length?`<div class="eyebrow">Trajet par défaut</div><div class="list">${def.map(cardHtml).join("")}</div>`:""}
       <div class="eyebrow">Road trips · ${voyages.length}</div>
       ${seedPanel()}
@@ -1049,7 +1170,7 @@ function renderList(){
     </div>
     <div class="fab-row"><button class="btn btn-primary" id="newloop">+ Boucle</button><button class="btn btn-ghost" id="new">+ Trajet</button><button class="btn btn-ghost" id="newv">+ Road trip</button></div>
     ${tabsBar()}`;
-  bindTabs(); bindSwipes(); bindSeed();
+  bindTabs(); bindSwipes(); bindSeed(); bindNow();
   app.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{
     if(swipeGuard(b)) return;
     const r=state.routes.find(x=>x.id===b.dataset.open);
