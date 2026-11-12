@@ -159,6 +159,13 @@ input[type=text],input[type=search],input[type=time]{width:100%;min-width:0;back
 .seg2{display:flex;gap:4px;background:var(--bg);border-radius:9px;padding:3px}
 .seg2 button{border:0;background:transparent;padding:6px 10px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
 .seg2 button[aria-pressed="true"]{background:var(--surface);color:var(--ink)}
+.bt{display:grid;gap:8px}
+.bt + .bt{margin-top:6px;padding-top:12px;border-top:1px solid var(--line)}
+.bt-head{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.bt-head .lbl{font:700 15px/1 var(--display);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.bt .now-best b{font-size:20px}
+.hr.plan{box-shadow:inset 0 0 0 2px var(--ink)}
+.hr.plan.hbest{box-shadow:inset 0 0 0 2px var(--ink),0 5px 0 -1px var(--accent)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(140px + env(safe-area-inset-bottom,0px));z-index:6;background:var(--ink);color:var(--bg);padding:10px 12px 10px 16px;border-radius:14px;font-weight:600;font-size:14px;display:flex;align-items:center;gap:12px;width:max-content;max-width:calc(100% - 32px)}
 .toast-btn{border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;border-radius:8px;padding:6px 10px;cursor:pointer;flex:0 0 auto}
 /* météo */
@@ -504,7 +511,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.10.11-3";
+const APP_VERSION="2026.11.12-1";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -1101,7 +1108,7 @@ function bestWindows(cells){
   runs.sort((a,b)=>(b.to-b.from)-(a.to-a.from) || a.from-b.from);
   return {lvl, list:runs};
 }
-const hh = h => h+" h";
+const hh = h => h+"\u00a0h";
 function aggOf(cells){
   const all=k=>cells.map(c=>c.g[k]).filter(Number.isFinite), worst=cells.reduce((w,c)=>!w||skyRank(c.g.code)>skyRank(w.g.code)?c:w,null);
   return {tMin:lo(all("tMin")), tMax:hi(all("tMax")), feel:lo(all("feel")), rain:hi(all("rain")), prob:hi(all("prob")), wind:hi(all("wind")), gust:hi(all("gust")), vis:lo(all("vis")), code:worst?.g.code, many:false};
@@ -1453,6 +1460,63 @@ function openDetail(id){
   state.detailId=id; state.day=defaultDay(r); state.view="detail";
   render(); window.scrollTo(0,0);
 }
+/* ---------- meilleur moment pour faire un trajet dans la journée ---------- */
+// lever et coucher du soleil (minutes, heure locale de l'appareil)
+function sunTimes(lat, lon, iso){
+  const rad=Math.PI/180, J=Date.parse(iso+"T12:00:00Z")/864e5+2440587.5;
+  const n=Math.round(J-2451545+0.0008), Js=n-lon/360;
+  const M=(357.5291+0.98560028*Js)%360, C=1.9148*Math.sin(M*rad)+0.02*Math.sin(2*M*rad)+0.0003*Math.sin(3*M*rad);
+  const L=(M+C+282.9372)%360, Jt=2451545+Js+0.0053*Math.sin(M*rad)-0.0069*Math.sin(2*L*rad);
+  const dec=Math.asin(Math.sin(L*rad)*Math.sin(23.44*rad));
+  const c=(Math.sin(-0.833*rad)-Math.sin(lat*rad)*Math.sin(dec))/(Math.cos(lat*rad)*Math.cos(dec));
+  if(c<-1) return {rise:0, set:1440}; if(c>1) return {rise:720, set:720}; // soleil de minuit / nuit polaire
+  const w=Math.acos(c)/rad/360, m=j=>{ const d=new Date((j-2440587.5)*864e5); return d.getHours()*60+d.getMinutes(); };
+  return {rise:m(Jt-w), set:m(Jt+w)};
+}
+// note de chaque heure de départ possible, avec la météo relevée tout le long de la route
+function departCells(route, reverse, data, date, minH=H0){
+  const sun=sunTimes(route.points[0].lat, route.points[0].lon, date), today=date===todayIso(), now=nowMin(), out=[];
+  for(let h=minH; h<H1; h++){
+    const t=fmtTime(h*60), smp=sampleTrip(route,reverse,{start:t,end:t},data), arr=smp.end;
+    out.push({h, arr, g:smp.agg, v:verdictOf(smp.agg), night: h*60<sun.rise-15 || arr>sun.set+15, past: today && h*60+30<now});
+  }
+  return {cells:out, sun};
+}
+function bestStrip(key, label, route, reverse, slot, data, date, minH=H0){
+  const {cells, sun}=departCells(route,reverse,data,date,minH), B=bestWindows(cells), best=B.list[0];
+  const p0=Math.floor(toMin(slot.start)/60), p1=Math.floor(toMin(slot.end)/60), plan=c=>c.h>=p0&&c.h<=p1;
+  const bestSet=new Set(best&&B.lvl<2?cells.filter(c=>c.h>=best.from&&c.h<best.to).map(c=>c.h):[]);
+  const selH=state.bsel&&state.bsel.k===key?state.bsel.h:null, sel=cells.find(c=>c.h===selH);
+  let head;
+  if(B.lvl===null) head=`<div class="now-best stop"><b>Plus de départ possible de jour</b><span>Regarde un autre jour.</span></div>`;
+  else if(B.lvl===2) head=`<div class="now-best stop"><b>Pas aujourd'hui</b><span>${esc(cells.filter(c=>!c.past&&!c.night).map(c=>c.v.reasons[0]?.t).find(Boolean)||"Conditions défavorables toute la journée")}</span></div>`;
+  else{
+    const last=cells.find(c=>c.h===best.to-1), r=B.lvl?verdictOf(aggOf(cells.filter(c=>bestSet.has(c.h)))).reasons[0]:null;
+    const others=B.list.slice(1).filter(x=>x.to-x.from>=2).slice(0,2);
+    const planLvl=Math.max(...cells.filter(plan).map(c=>c.v.lvl)), planBetter=Number.isFinite(planLvl)&&planLvl>B.lvl;
+    head=`<div class="now-best${B.lvl?" warn":""}"><b>${B.lvl?"Prudence · ":"Roule · "}départ ${best.to-best.from>1?`entre ${hh(best.from)} et ${hh(best.to-1)}`:`à ${hh(best.from)}`}</b>
+      <span>arrivée au plus tard vers ${fmtTime(last.arr)}${r?" · "+esc(r.t):""}${others.length?` · aussi ${others.map(x=>x.to-x.from>1?hh(x.from)+"–"+hh(x.to-1):hh(x.from)).join(", ")}`:""}</span></div>
+      ${planBetter?`<p class="hint">${slot.start===slot.end?"Ton départ prévu":"Ta plage habituelle"} (${fmtSlot(toMin(slot.start),toMin(slot.end))}) est en <b>${VERDICT[planLvl].label}</b> : décaler ton départ vaut le coup.</p>`:""}`;
+  }
+  return `<div class="bt">
+    <div class="bt-head"><span class="lbl">${esc(label)}</span><span class="now-where">heure de départ</span></div>
+    ${head}
+    <div class="hours" style="--n:${cells.length}">${cells.map(c=>`<button class="hr l${c.v.lvl}${c.night?" night":""}${c.past?" past":""}${bestSet.has(c.h)?" hbest":""}${plan(c)?" plan":""}${selH===c.h?" sel":""}" data-bk="${key}" data-bh="${c.h}" aria-label="Départ ${c.h} h : ${VERDICT[c.v.lvl].label}"></button>`).join("")}</div>
+    <div class="hlabels" style="--n:${cells.length}">${cells.map(c=>`<span>${c.h%3===0?c.h+"h":""}</span>`).join("")}</div>
+    ${sel?`<div class="now-hour"><b>Départ ${fmtTime(sel.h*60)} → arrivée ${fmtTime(sel.arr)} · ${VERDICT[sel.v.lvl].label}</b>${sel.night?" · de nuit":""} — ${num(sel.g.tMin,"°")}${Math.round(sel.g.tMax)!==Math.round(sel.g.tMin)?" à "+num(sel.g.tMax,"°"):""}, ${esc(SKY[sel.g.code]??"")}, pluie ${mm(sel.g.rain)} (${num(sel.g.prob," %")}), rafales ${num(sel.g.gust)} km/h${sel.v.reasons[0]?` · ${esc(sel.v.reasons[0].t)}`:""}</div>`:""}
+  </div>`;
+}
+function bestTimePanel(route, data, date, retour){
+  return `<div class="panel now"><h3>Meilleur moment pour partir</h3>
+    ${bestStrip("a", retour?"Aller":"Trajet", route, false, route.aller, data, date)}
+    ${retour?bestStrip("r","Retour", route, true, route.retour, data, date, Math.min(H1-1, Math.ceil(timeline(route,false,toMin(route.aller.end)).at(-1).min/60))):""}
+    <p class="hint">Chaque case = un départ à cette heure, météo relevée tout le long de la route. Encadré : ta plage prévue.${retour?" Le retour part après l'arrivée de l'aller.":""} Trait bleu : meilleure plage. Hachuré : tout ou partie de nuit. Touche une case pour le détail.</p></div>`;
+}
+function bindBest(){
+  app.querySelectorAll("[data-bk]").forEach(b=>b.onclick=()=>{ const k=b.dataset.bk, h=+b.dataset.bh;
+    state.bsel = state.bsel&&state.bsel.k===k&&state.bsel.h===h ? null : {k,h}; render(); });
+}
+
 function renderDetail(force){
   const r=state.routes.find(x=>x.id===state.detailId);
   if(!r){ state.view="list"; return renderList(); }
@@ -1478,6 +1542,7 @@ function renderDetail(force){
         ${days.map((d,i)=>`<button class="day" data-day="${d}" aria-pressed="${d===state.day}">${i<2?dayLabel(d):dayLabel(d,true)}<small>${esc(fmtDate(d,{day:"numeric",month:"short"}))}</small></button>`).join("")}
       </div>
       ${mapBox(r,"detail",marks)}
+      ${w.data?bestTimePanel(r,w.data,state.day,r.retour.on):""}
       <div class="panel">${body}</div>
       ${navPanel(r,false,r.retour.on?"Navigation · aller":"Navigation")}
       ${r.retour.on?navPanel(r,true,"Navigation · retour"):""}
@@ -1487,8 +1552,8 @@ function renderDetail(force){
   document.getElementById("back").onclick=()=>{state.view="list";render();};
   document.getElementById("refresh").onclick=()=>{ const r=state.routes.find(x=>x.id===state.detailId); if(r) getWx(r,state.day,true); render(); };
   document.getElementById("edit").onclick=()=>openEditor(r.id);
-  app.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>{state.day=b.dataset.day;render();});
-  bindNav(); bindShare(r);
+  app.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>{state.day=b.dataset.day; state.bsel=null; render();});
+  bindNav(); bindShare(r); bindBest();
 }
 
 /* ---------- vue road trip ---------- */
@@ -1503,7 +1568,7 @@ function renderVoyage(force){
   if(!v){ state.view="list"; return renderList(); }
   if(state.vday>=v.days.length) state.vday=0;
   const t=voyageTotals(v), d=v.days[state.vday];
-  let body="", marks=null;
+  let body="", marks=null, best="";
   if(!d) body=`<p class="hint">Ajoute une première journée à ce road trip.</p>`;
   else if(!ready(d)) body=`<p class="hint">Cette journée n'a pas encore de départ et d'arrivée.</p>`;
   else{
@@ -1515,6 +1580,7 @@ function renderVoyage(force){
       body=wxBlock(`Jour ${state.vday+1}`, d, false, d.aller, w.data, d.date, true)
         + `<p class="hint">Nuitée : <b>${esc(nuit)}</b></p>` + wxFoot(w);
       marks=wxMarks(d,false,d.aller,w.data);
+      best=bestTimePanel(d,w.data,d.date,false);
     }
     else body=`<p class="${w.error?"err":"hint"}">${w.error?"Météo indisponible. Vérifie ta connexion puis touche Actualiser.":"Chargement de la météo…"}</p>`;
   }
@@ -1535,6 +1601,7 @@ function renderVoyage(force){
           <span class="vbadge ${dv.cls}">${esc(dv.label)}</span></button>`; }).join("")}</div>
       ${d&&ready(d)?mapBox(d,"detail",marks):""}
       ${d&&d.note?`<div class="note">${esc(d.note)}</div>`:""}
+      ${best}
       <div class="panel">${body}</div>
       ${d?navPanel(d,false,`Navigation · jour ${state.vday+1}`):""}
       ${d&&ready(d)?infoPanels(d, d.date, toMin(d.aller.start), {first:state.vday===0}):""}
@@ -1543,7 +1610,8 @@ function renderVoyage(force){
   document.getElementById("back").onclick=()=>{ state.view="list"; render(); };
   document.getElementById("refresh").onclick=()=>{ if(d&&ready(d)) getWx(d,d.date,true); render(); };
   document.getElementById("edit").onclick=()=>openVoyageEditor(v.id);
-  app.querySelectorAll("[data-vday]").forEach(b=>b.onclick=()=>{ state.vday=+b.dataset.vday; render(); });
+  bindBest();
+  app.querySelectorAll("[data-vday]").forEach(b=>b.onclick=()=>{ state.vday=+b.dataset.vday; state.bsel=null; render(); });
   bindNav(); bindShare(v);
 }
 
