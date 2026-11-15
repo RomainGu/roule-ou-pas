@@ -197,6 +197,9 @@ input[type=text],input[type=search],input[type=time]{width:100%;min-width:0;back
 .days::-webkit-scrollbar{display:none}
 .day{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;text-align:center;line-height:1.15}
 .day small{display:block;font-size:12px;color:var(--muted)}
+.day.l0,.day.l1,.day.l2,.day.lx{border-top-width:5px}
+.day.l0{border-top-color:var(--ok)} .day.l1{border-top-color:var(--warn)} .day.l2{border-top-color:var(--danger)}
+.day[aria-pressed="true"].l0{border-top-color:var(--ok)} .day[aria-pressed="true"].l1{border-top-color:var(--warn)} .day[aria-pressed="true"].l2{border-top-color:var(--danger)}
 .day[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .day[aria-pressed="true"] small{color:inherit;opacity:.75}
 .wx{display:flex;flex-direction:column;gap:10px}
@@ -535,7 +538,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.11.15-2";
+const APP_VERSION="2026.11.15-3";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -1600,6 +1603,34 @@ function bindBest(){
     state.bsel = state.bsel&&state.bsel.k===k&&state.bsel.h===h ? null : {k,h}; render(); });
 }
 
+/* couleur de chaque jour d'un trajet : une seule requête météo pour la semaine */
+const wk={cache:{}, pending:{}, err:{}};
+function getWeek(route){
+  const t=todayIso(), S=routeSamples(route), k=keyOf(S), c=wk.cache[k];
+  const fresh=c && c.start===addDays(t,-1) && Date.now()-c.at<WX_TTL, recentErr=wk.err[k] && Date.now()-wk.err[k]<WX_RETRY;
+  if(!fresh && !wk.pending[k] && !recentErr){
+    wk.pending[k]=true;
+    const lat=S.map(p=>p.lat.toFixed(4)).join(","), lon=S.map(p=>p.lon.toFixed(4)).join(","), start=addDays(t,-1);
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=${WX_VARS}&timezone=auto&start_date=${start}&end_date=${addDays(t,7)}`)
+      .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(d=>{ if(!Array.isArray(d)) d=[d]; wk.cache={[k]:{at:Date.now(), start, hourly:d.map(x=>x.hourly||{}), elev:d.map(x=>x.elevation)}}; delete wk.err[k]; })
+      .catch(()=>{ wk.err[k]=Date.now(); })
+      .finally(()=>{ delete wk.pending[k]; if(!editing()) render(); });
+  }
+  return c && c.start===addDays(t,-1) ? c : null;
+}
+function dayLevel(route, date){
+  if(!ready(route)) return null;
+  const c=getWeek(route); if(!c) return null;
+  let i=0; while(i<9 && addDays(c.start,i)!==date) i++;
+  if(i>=8) return null;
+  const data={hourly:c.hourly.map(h=>dayFrom(h,i*24,48)), elev:c.elev};
+  if(data.hourly.some(h=>(h.temperature_2m||[])[0]==null)) return null;
+  let lvl=verdictOf(sampleTrip(route,false,route.aller,data).agg).lvl;
+  if(route.retour?.on) lvl=Math.max(lvl, verdictOf(sampleTrip(route,true,route.retour,data).agg).lvl);
+  return lvl;
+}
+
 function renderDetail(force){
   const r=state.routes.find(x=>x.id===state.detailId);
   if(!r){ state.view="list"; return renderList(); }
@@ -1622,7 +1653,7 @@ function renderDetail(force){
     <div class="stack">
       <div><h2>${esc(r.name)}</h2><p class="hint">${esc(r.points.map(p=>p.name).join(" → "))}</p></div>
       <div class="days" role="group" aria-label="Jour du trajet">
-        ${days.map((d,i)=>`<button class="day" data-day="${d}" aria-pressed="${d===state.day}">${i<2?dayLabel(d):dayLabel(d,true)}<small>${esc(fmtDate(d,{day:"numeric",month:"short"}))}</small></button>`).join("")}
+        ${days.map((d,i)=>{ const L=dayLevel(r,d); return `<button class="day${L==null?"":" l"+L}" data-day="${d}" aria-pressed="${d===state.day}"${L==null?"":` aria-label="${esc(dayLabel(d))} : ${VERDICT[L].label}"`}>${i<2?dayLabel(d):dayLabel(d,true)}<small>${esc(fmtDate(d,{day:"numeric",month:"short"}))}</small></button>`; }).join("")}
       </div>
       ${mapBox(r,"detail",marks)}
       ${w.data?bestTimePanel(r,w.data,state.day,r.retour.on):""}
