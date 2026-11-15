@@ -535,7 +535,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.11.15-1";
+const APP_VERSION="2026.11.15-2";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -1698,7 +1698,7 @@ async function fetchStays(p){
   if(els.length<6) els=(await overpass(q(20000))).elements||[];
   const seen=new Set();
   return els.map(e=>{ const t=e.tags||{}, lat=e.lat??e.center?.lat, lon=e.lon??e.center?.lon; if(lat==null) return null;
-      const cabins=t.tourism==="camp_site" && (t.cabins==="yes"||t["camp_site:cabins"]==="yes"||/hytte|cabin|chalet/i.test(t.name||""));
+      const cabins=t.cabins==="yes"||t["camp_site:cabins"]==="yes"||/hytt|rorbu|cabin|chalet|stuga|mökki|bungalow/i.test(t.name||"");
       return {name:String(t.name).slice(0,60), kind:t.tourism, cabins, lat:+lat.toFixed(5), lon:+lon.toFixed(5), km:+haversine(p,{lat,lon}).toFixed(1),
         web:(t.website||t["contact:website"]||t.url||"").slice(0,200), stars:t.stars||""}; })
     .filter(x=>x && !seen.has(x.name+x.kind) && seen.add(x.name+x.kind))
