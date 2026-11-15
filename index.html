@@ -156,6 +156,30 @@ input[type=text],input[type=search],input[type=time]{width:100%;min-width:0;back
 .hlabels span{text-align:left;white-space:nowrap}
 .linkbtn{border:0;background:none;padding:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer;text-decoration:underline}
 .now-hour{font-size:14px;padding:8px 10px;border-radius:8px;background:var(--bg)}
+.bud{display:grid;gap:6px}
+.bud-row{display:flex;justify-content:space-between;gap:10px;font-variant-numeric:tabular-nums}
+.bud-row.tot{font-weight:700;font-size:17px;border-top:1px solid var(--line);padding-top:8px}
+.bud-row.pp{font:700 22px/1.1 var(--display);color:var(--accent)}
+.bud-in{display:grid;gap:8px;margin-top:8px}
+.bud-in .rule input{width:96px}
+.bud-day{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.bud-day small{display:block;color:var(--muted)}
+.bud-day input{width:84px}
+.bud-day label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.stays{display:grid;gap:8px}
+.stay{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.stay b{display:block;line-height:1.2}
+.stay small{color:var(--muted)}
+.stay .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.stay .acts a,.stay .acts button{font-size:13px;padding:6px 10px}
+.stay.chosen{background:var(--bg);border-radius:10px;padding:10px;border:1px solid var(--accent)}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.wday{border:0;border-radius:8px;padding:6px 0 7px;background:var(--bg);color:var(--ink);display:grid;gap:2px;justify-items:center;cursor:pointer;border-top:4px solid var(--ok)}
+.wday span{font-size:11px;color:var(--muted);text-transform:capitalize}
+.wday b{font-size:12px;font-variant-numeric:tabular-nums}
+.wday.l1{border-top-color:var(--warn)} .wday.l2{border-top-color:var(--danger)} .wday.lx{border-top-color:var(--line)}
+.wday[aria-pressed="true"]{background:var(--surface);outline:2px solid var(--accent)}
+.week-top{margin:0;font-size:15px}
 .seg2{display:flex;gap:4px;background:var(--bg);border-radius:9px;padding:3px}
 .seg2 button{border:0;background:transparent;padding:6px 10px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
 .seg2 button[aria-pressed="true"]{background:var(--surface);color:var(--ink)}
@@ -511,7 +535,7 @@ function mountMaps(){
 }
 
 /* ---------- version ---------- */
-const APP_VERSION="2026.11.12-1";
+const APP_VERSION="2026.11.15-1";
 // compare deux versions « AAAA.MM.JJ-N » : positif si a est plus récente que b
 const cmpVer=(a,b)=>{ const p=v=>v.split(/[.-]/).map(Number); const x=p(a), y=p(b); for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; };
 let newVersion=null;
@@ -544,7 +568,37 @@ function sketch(points, size=84){
 }
 
 /* ---------- météo ---------- */
-const WX_KEY="rouleoupas.wx.v2", WX_TTL=30*60*1000, WX_RETRY=60*1000, HORIZON=15;
+const WX_VARS="temperature_2m,apparent_temperature,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m,visibility,soil_temperature_0cm,dew_point_2m";
+// tranche [from, from+len) des séries horaires, avec la pluie des 24 h qui précèdent
+function dayFrom(h, from, len){
+  const o={}; for(const k in h) if(k!=="time" && Array.isArray(h[k])) o[k]=h[k].slice(from, from+len);
+  o.precip_prev=(h.precipitation||[]).slice(Math.max(0,from-24), from);
+  while(o.precip_prev.length<24) o.precip_prev.unshift(0);
+  return o;
+}
+/* état de la route à l'heure r : verglas, givre, route encore mouillée.
+   Température du sol (surface) + point de rosée + pluie des heures précédentes. */
+function roadRisk(h, r){
+  const sfc=h.soil_temperature_0cm?.[r], dew=h.dew_point_2m?.[r];
+  if(!Number.isFinite(sfc)) return null;
+  const pr=i=> i>=0 ? (h.precipitation?.[i]??0) : (h.precip_prev?.[24+i]??0);
+  const sum=n=>{ let x=0; for(let i=r-n;i<r;i++) x+=pr(i)||0; return x; };
+  const now=pr(r)||0, p3=sum(3), p6=sum(6), p12=sum(12), d=Math.round(sfc*10)/10;
+  const sol=`sol à ${String(d).replace(".",",")}°`;
+  if(sfc<=0.5 && (now>=0.1 || p6>=0.3)) return {lvl:2, t:`Verglas probable : route mouillée qui gèle (${sol})`};
+  if(sfc<=0.5 && Number.isFinite(dew) && dew>=sfc-0.5) return {lvl:1, t:`Risque de verglas : givre sur la route (${sol})`};
+  if(sfc<=1.5 && p12>=0.5) return {lvl:1, t:`Risque de verglas : route humide, ${sol}`};
+  if(sfc<=0) return {lvl:1, t:`Sol gelé : plaques possibles à l'ombre (${sol})`};
+  if(now<0.1 && p3>=0.5) return {lvl:1, t:"Route encore mouillée après la pluie"};
+  return null;
+}
+// jusqu'à quelle heure le risque dure (null s'il dure jusqu'au bout des données)
+function riskUntil(h, r){
+  const n=(h.soil_temperature_0cm||[]).length; let i=r;
+  while(i<n && roadRisk(h,i)) i++;
+  return i>=n ? null : i%24;
+}
+const WX_KEY="rouleoupas.wx.v3", WX_TTL=30*60*1000, WX_RETRY=60*1000, HORIZON=15;
 const wx={cache:{}, pending:{}, err:{}};
 try{ localStorage.removeItem("rouleoupas.wx.v1"); }catch(e){}
 try{ wx.cache=JSON.parse(localStorage.getItem(WX_KEY))||{}; }catch(e){}
@@ -588,11 +642,11 @@ function timeAt(tl, km){
 }
 async function fetchWx(points, date){
   const lat=points.map(p=>p.lat.toFixed(4)).join(","), lon=points.map(p=>p.lon.toFixed(4)).join(",");
-  const vars="temperature_2m,apparent_temperature,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m,visibility";
-  const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=${vars}&timezone=auto&start_date=${date}&end_date=${addDays(date,1)}`);
+  const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=${WX_VARS}&timezone=auto&start_date=${addDays(date,-1)}&end_date=${addDays(date,1)}`);
   if(!r.ok) throw new Error(r.status);
   let d=await r.json(); if(!Array.isArray(d)) d=[d];
-  return {hourly:d.map(x=>{ const h=x.hourly||{}; delete h.time; return h; }), elev:d.map(x=>x.elevation)};
+  // la veille ne sert qu'à savoir s'il a plu avant (route encore mouillée, verglas)
+  return {hourly:d.map(x=>dayFrom(x.hourly||{},24,48)), elev:d.map(x=>x.elevation)};
 }
 function saveWx(){
   const t=todayIso();
@@ -634,6 +688,12 @@ function whereOf(p){
   const base = p.pt.stop ? p.pt.name : `km ${fmtInt(p.km)}`;
   return base + (Number.isFinite(p.elev) && p.elev>=300 ? ` · ${fmtInt(p.elev)} m` : "");
 }
+function iceAgg(list){
+  const w=list.filter(p=>p.ice>0).reduce((a,p)=>!a||p.ice>a.ice?p:a,null);
+  if(!w) return {ice:0};
+  const until=list.filter(p=>p.ice>0&&p.iceUntil!=null).map(p=>p.iceUntil);
+  return {ice:w.ice, iceT:w.iceT, iceUntil:until.length?Math.max(...until):null, iceAt:w.pt?whereOf(w):""};
+}
 function sampleTrip(route, reverse, slot, data){
   const S=routeSamples(route), total=totals(route).km;
   const a=timeline(route,reverse,toMin(slot.start)), b=timeline(route,reverse,toMin(slot.end));
@@ -645,7 +705,8 @@ function sampleTrip(route, reverse, slot, data){
     const rows=[]; for(let r=Math.max(0,Math.floor(m1/60)); r<=Math.min(47,Math.floor(m2/60)); r++) rows.push(r);
     const pick=key=>rows.map(r=>h[key]?.[r]).filter(v=>v!=null);
     const codes=pick("weather_code");
-    return {pt:s, km:k, elev:data.elev?.[i], m1, m2,
+    let ice=null, iceRow=null; for(const r of rows){ const x=roadRisk(h,r); if(x && (!ice||x.lvl>ice.lvl)){ ice=x; iceRow=r; } }
+    return {pt:s, km:k, elev:data.elev?.[i], m1, m2, ice:ice?.lvl||0, iceT:ice?.t||"", iceUntil:ice?riskUntil(h,iceRow):null,
       tMin:lo(pick("temperature_2m")), tMax:hi(pick("temperature_2m")), feel:lo(pick("apparent_temperature")),
       rain:hi(pick("precipitation")), prob:hi(pick("precipitation_probability")),
       wind:hi(pick("wind_speed_10m")), gust:hi(pick("wind_gusts_10m")), vis:lo(pick("visibility")),
@@ -658,7 +719,7 @@ function sampleTrip(route, reverse, slot, data){
     agg:{tMin:lo(all("tMin")), tMax:hi(all("tMax")), feel:lo(all("feel")), rain:hi(all("rain")), prob:hi(all("prob")),
          wind:hi(all("wind")), gust:hi(all("gust")), vis:lo(all("vis")), code:worst?.code,
          many:per.length>2, coldAt:whereOf(best("tMin",-1)), rainAt:whereOf(best("rain",1)), gustAt:whereOf(best("gust",1)),
-         visAt:whereOf(best("vis",-1)), altMax:hi(all("elev"))}};
+         visAt:whereOf(best("vis",-1)), altMax:hi(all("elev")), ...iceAgg(per)}};
 }
 const num = (v,suf="") => Number.isFinite(v) ? Math.round(v)+suf : "—";
 const mm = v => !Number.isFinite(v) ? "—" : (v<0.05?"0":v.toFixed(1).replace(".",","))+" mm";
@@ -719,6 +780,7 @@ function verdictOf(g){
   if([56,57,66,67].includes(g.code)) add(2,"Pluie ou bruine verglaçante");
   if((g.code>=71&&g.code<=77)||g.code===85||g.code===86) add(2,"Neige");
   const at=k=>g.many&&g[k]?` (${g[k]})`:"";
+  if(g.ice>0) add(g.ice, `${g.iceT}${g.iceUntil!=null?` jusqu'à ${g.iceUntil} h`:""}${at("iceAt")}`);
   if(fin(g.tMin)){ if(g.tMin<=R.coldStop) add(2,`${num(g.tMin,"°C")}${at("coldAt")} : risque de verglas`); else if(g.tMin<=R.coldWarn) add(1,`${num(g.tMin,"°C")}${at("coldAt")} : chaussée froide, plaques possibles`); }
   if(fin(g.tMax)&&g.tMax>=R.heatWarn) add(1,`Forte chaleur (${num(g.tMax,"°C")}) : hydrate-toi`);
   if(fin(g.rain)&&g.rain>=R.rainStop) add(2,`Forte pluie (${mm(g.rain)}/h)${at("rainAt")}`);
@@ -1063,26 +1125,32 @@ function voyageCard(v){
 }
 
 /* ---------- « Quand rouler ? » : la meilleure plage horaire autour de chez soi, sans créer de trajet ---------- */
-const HERE_KEY="rouleoupas.here.v1", H0=6, H1=22; // heures affichées : 6 h à 22 h
+const HERE_KEY="rouleoupas.here.v2", H0=6, H1=22; // heures affichées : 6 h à 22 h
 const here={cache:{}, pending:{}, err:{}, gps:null, day:null, sel:null};
 try{ here.cache=JSON.parse(localStorage.getItem(HERE_KEY))||{}; }catch(e){}
 function herePlace(){ return here.gps || homePoint(); }
+// une seule requête pour la semaine (la veille comprise, pour la pluie récente)
 function getHere(p, date){
-  const k=p.lat.toFixed(3)+","+p.lon.toFixed(3)+"|"+date, c=here.cache[k];
-  const fresh=c && Date.now()-c.at<WX_TTL, recentErr=here.err[k] && Date.now()-here.err[k]<WX_RETRY;
+  const k=p.lat.toFixed(3)+","+p.lon.toFixed(3), c=here.cache[k], t=todayIso();
+  const fresh=c && c.start===addDays(t,-1) && Date.now()-c.at<WX_TTL, recentErr=here.err[k] && Date.now()-here.err[k]<WX_RETRY;
   if(!fresh && !here.pending[k] && !recentErr){
     here.pending[k]=true;
-    const vars="temperature_2m,apparent_temperature,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_gusts_10m,visibility";
-    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.lat.toFixed(4)}&longitude=${p.lon.toFixed(4)}&hourly=${vars}&daily=sunrise,sunset&timezone=auto&start_date=${date}&end_date=${date}`)
+    const start=addDays(t,-1);
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.lat.toFixed(4)}&longitude=${p.lon.toFixed(4)}&hourly=${WX_VARS}&daily=sunrise,sunset&timezone=auto&start_date=${start}&end_date=${addDays(t,6)}`)
       .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
-      .then(d=>{ const h=d.hourly||{}; delete h.time; const m=t=>{ const x=(t||"").slice(11,16); return x?toMin(x):NaN; };
-        here.cache[k]={at:Date.now(), hourly:h, rise:m(d.daily?.sunrise?.[0]), set:m(d.daily?.sunset?.[0])}; delete here.err[k];
-        const t=todayIso(); for(const x in here.cache) if(x.split("|")[1]<t) delete here.cache[x];
+      .then(d=>{ const m=x=>{ const v=(x||"").slice(11,16); return v?toMin(v):NaN; };
+        here.cache={[k]:{at:Date.now(), start, hourly:d.hourly||{}, rise:(d.daily?.sunrise||[]).map(m), set:(d.daily?.sunset||[]).map(m)}}; delete here.err[k];
         try{ localStorage.setItem(HERE_KEY, JSON.stringify(here.cache)); }catch(e){} })
       .catch(()=>{ here.err[k]=Date.now(); })
       .finally(()=>{ delete here.pending[k]; if(!editing()) render(); });
   }
-  return {data:c||null, loading:!!here.pending[k], error:!!here.err[k]};
+  const ok=c && c.start===addDays(t,-1);
+  return {data: ok ? hereDay(c,date) : null, week:ok?c:null, loading:!!here.pending[k], error:!!here.err[k]};
+}
+function hereDay(c, date){
+  let i=0; while(i<9 && addDays(c.start,i)!==date) i++;
+  if(i>=9 || (c.hourly.temperature_2m||[])[i*24]==null) return null;
+  return {hourly:dayFrom(c.hourly, i*24, 24), rise:c.rise[i], set:c.set[i]};
 }
 // note de chaque heure avec les mêmes seuils que les trajets
 function hourCells(c, date){
@@ -1091,6 +1159,7 @@ function hourCells(c, date){
     const v=k=>h[k]?.[i];
     const g={tMin:v("temperature_2m"), tMax:v("temperature_2m"), feel:v("apparent_temperature"), rain:v("precipitation"), prob:v("precipitation_probability"),
       wind:v("wind_speed_10m"), gust:v("wind_gusts_10m"), vis:v("visibility"), code:v("weather_code"), many:false};
+    const rk=roadRisk(h,i); if(rk) Object.assign(g,{ice:rk.lvl, iceT:rk.t, iceUntil:riskUntil(h,i)});
     const night = Number.isFinite(c.rise) && (i*60+60<=c.rise+15 || i*60>=c.set-15);
     cells.push({h:i, g, v:verdictOf(g), night, past: today && (i+1)*60<=now});
   }
@@ -1111,7 +1180,8 @@ function bestWindows(cells){
 const hh = h => h+"\u00a0h";
 function aggOf(cells){
   const all=k=>cells.map(c=>c.g[k]).filter(Number.isFinite), worst=cells.reduce((w,c)=>!w||skyRank(c.g.code)>skyRank(w.g.code)?c:w,null);
-  return {tMin:lo(all("tMin")), tMax:hi(all("tMax")), feel:lo(all("feel")), rain:hi(all("rain")), prob:hi(all("prob")), wind:hi(all("wind")), gust:hi(all("gust")), vis:lo(all("vis")), code:worst?.g.code, many:false};
+  return {tMin:lo(all("tMin")), tMax:hi(all("tMax")), feel:lo(all("feel")), rain:hi(all("rain")), prob:hi(all("prob")), wind:hi(all("wind")), gust:hi(all("gust")), vis:lo(all("vis")), code:worst?.g.code, many:false,
+    ...iceAgg(cells.map(c=>({ice:c.g.ice||0, iceT:c.g.iceT, iceUntil:c.g.iceUntil})))};
 }
 function nowPanel(){
   const p=herePlace();
@@ -1121,7 +1191,20 @@ function nowPanel(){
   const t=todayIso(), lateToday = nowMin()>=20*60;
   const date = here.day || (lateToday ? addDays(t,1) : t);
   const w=getHere(p,date);
-  const dayBtns=`<div class="seg2">${[t,addDays(t,1)].map(d=>`<button data-nowday="${d}" aria-pressed="${d===date}">${d===t?"Aujourd'hui":"Demain"}</button>`).join("")}</div>`;
+  const dayBtns="";
+  // la semaine : meilleure plage de chaque jour, et le meilleur jour pour une balade
+  let weekHtml="";
+  if(w.week){
+    const days=[...Array(7)].map((_,i)=>addDays(t,i)).map(d=>{ const e=hereDay(w.week,d); if(!e) return null;
+      const B=bestWindows(hourCells(e,d)); return {d, lvl:B.lvl, best:B.list[0]}; }).filter(Boolean);
+    const cand=days.filter(x=>x.lvl!=null && x.lvl<2 && x.best);
+    const we=d=>[0,6].includes(new Date(d+"T12:00").getDay())?0:1; // à égalité, le week-end d'abord
+    const top=cand.sort((a,b)=>a.lvl-b.lvl || (b.best.to-b.best.from)-(a.best.to-a.best.from) || we(a.d)-we(b.d) || (a.d<b.d?-1:1))[0];
+    const name=d=>d===t?"aujourd'hui":d===addDays(t,1)?"demain":fmtDate(d,{weekday:"long"});
+    weekHtml=`<div class="week">${days.map(x=>`<button class="wday l${x.lvl==null?"x":x.lvl}" data-nowday="${x.d}" aria-pressed="${x.d===date}">
+        <span>${x.d===t?"Auj.":esc(fmtDate(x.d,{weekday:"short"}).replace(".",""))}</span><b>${x.lvl==null?"—":x.lvl===2?"✕":x.best?`${x.best.from}–${x.best.to}`:"—"}</b></button>`).join("")}</div>
+      <p class="week-top">${top?`Pour une balade ou une boucle cette semaine, vise <b>${esc(name(top.d))} ${hh(top.best.from)} → ${hh(top.best.to)}</b>${top.lvl?" (avec prudence)":""}.`:"Pas de bonne journée pour rouler cette semaine."}</p>`;
+  }
   const where=`<div class="now-where">${here.gps?"Autour de ta position":"Autour de "+esc(p.name)} · <button class="linkbtn" id="now-gps">${here.gps?"revenir à "+esc((homePoint()||{}).name||"la maison"):"ma position"}</button></div>`;
   let body;
   if(!w.data) body=`<p class="${w.error?"err":"hint"}">${w.error?"Météo indisponible pour le moment.":"Chargement de la météo heure par heure…"}</p>`;
@@ -1129,7 +1212,7 @@ function nowPanel(){
     const cells=hourCells(w.data,date), B=bestWindows(cells), best=B.list[0];
     let head;
     if(B.lvl===null) head=`<div class="now-best stop"><b>Journée terminée</b><span>Regarde demain.</span></div>`;
-    else if(B.lvl===2) head=`<div class="now-best stop"><b>Pas aujourd'hui</b><span>${esc(cells.filter(c=>!c.past&&!c.night).map(c=>c.v.reasons[0]?.t).find(Boolean)||"Conditions défavorables toute la journée")}</span></div>`;
+    else if(B.lvl===2) head=`<div class="now-best stop"><b>Pas ${date===t?"aujourd'hui":"ce jour-là"}</b><span>${esc(cells.filter(c=>!c.past&&!c.night).map(c=>c.v.reasons[0]?.t).find(Boolean)||"Conditions défavorables toute la journée")}</span></div>`;
     else{
       const inBest=cells.filter(c=>c.h>=best.from&&c.h<best.to), g=aggOf(inBest);
       const others=B.list.slice(1).filter(r=>r.to-r.from>=2).slice(0,2);
@@ -1145,7 +1228,7 @@ function nowPanel(){
       ${sel?`<div class="now-hour"><b>${hh(sel.h)}–${hh(sel.h+1)} · ${VERDICT[sel.v.lvl].label}</b>${sel.night?" · de nuit":""} — ${num(sel.g.tMin,"°")} (ressenti à moto ≈ ${num(rideFeel(sel.g.tMin,50),"°")}), ${esc(SKY[sel.g.code]??"")}, pluie ${mm(sel.g.rain)} (${num(sel.g.prob," %")}), rafales ${num(sel.g.gust)} km/h${sel.v.reasons[0]?` · ${esc(sel.v.reasons[0].t)}`:""}</div>`
         :`<p class="hint">Touche une heure pour le détail. Trait bleu : meilleure plage. Hachuré : de nuit${Number.isFinite(w.data.rise)?` (soleil ${fmtTime(w.data.rise)} → ${fmtTime(w.data.set)})`:""}. Mêmes seuils que tes trajets.</p>`}`;
   }
-  return `<div class="panel now"><div class="now-head"><div><h3>Quand rouler ?</h3>${where}</div>${dayBtns}</div>${body}</div>`;
+  return `<div class="panel now"><div class="now-head"><div><h3>Quand rouler ?</h3>${where}</div>${dayBtns}</div>${weekHtml}${body}</div>`;
 }
 function bindNow(){
   app.querySelectorAll("[data-nowday]").forEach(b=>b.onclick=()=>{ here.day=b.dataset.nowday; here.sel=null; render(); });
@@ -1556,6 +1639,115 @@ function renderDetail(force){
   bindNav(); bindShare(r); bindBest();
 }
 
+/* ---------- budget du road trip : carburant + ferries + nuits ---------- */
+const eurIn = v => v>0 ? String(v).replace(".",",") : "";
+const parseEur = v => { const n=parseFloat(String(v||"").replace(",",".").replace(/[^\d.]/g,"")); return n>0?Math.round(n*100)/100:0; };
+function budgetOf(v){
+  const b=v.budget||{}, people=b.people>0?b.people:2, bikes=b.bikes>0?b.bikes:1;
+  const f=fuelCost(tripKm(v)), fuel=f.eur!=null?f.eur*bikes:null;
+  const ferryDays=v.days.filter(d=>d.points.some(p=>p.ferry>0));
+  const ferries=v.days.reduce((x,d)=>x+(d.ferryCost||0),0), nights=v.days.reduce((x,d)=>x+(d.nightCost||0),0);
+  const total=(fuel||0)+ferries+nights;
+  return {people, bikes, fuel, L:f.L*bikes, ferries, nights, total, per:total/people,
+    missingNights:v.days.filter(d=>!(d.nightCost>0)).length, missingFerries:ferryDays.filter(d=>!(d.ferryCost>0)).length};
+}
+function budgetPanel(v){
+  const B=budgetOf(v), open=state.budOpen===v.id;
+  const row=(l,val,cls="")=>`<div class="bud-row ${cls}"><span>${l}</span><span>${val}</span></div>`;
+  return `<div class="panel"><h3>Budget du road trip</h3>
+    <div class="bud">
+      ${row(`Carburant · ${fmtL(B.L)}${B.bikes>1?` (${B.bikes} motos)`:""}`, B.fuel!=null?fmtEur(B.fuel):"prix inconnu")}
+      ${row(`Ferries${B.missingFerries?` · ${B.missingFerries} à saisir`:""}`, fmtEur(B.ferries))}
+      ${row(`Nuits${B.missingNights?` · ${B.missingNights} à saisir`:""}`, fmtEur(B.nights))}
+      ${row("Total", fmtEur(B.total), "tot")}
+      ${row(`Par personne (${B.people})`, fmtEur(B.per), "pp")}
+    </div>
+    <details class="more"${open?" open":""} data-budopen="${esc(v.id)}"><summary>Saisir les prix des nuits et des ferries</summary>
+      <div class="bud-in">
+        <div class="rule"><label for="bud-people">Personnes</label><input id="bud-people" type="number" inputmode="numeric" min="1" value="${B.people}"></div>
+        <div class="rule"><label for="bud-bikes">Motos</label><input id="bud-bikes" type="number" inputmode="numeric" min="1" value="${B.bikes}"></div>
+        <p class="hint">Prix totaux pour le groupe : la chambre ou l'emplacement pour la nuit, le billet complet (motos et passagers) pour le ferry.</p>
+        ${v.days.map((d,i)=>{ const ferry=d.points.some(p=>p.ferry>0), end=d.points.at(-1);
+          return `<div class="bud-day"><div><b>J${i+1} · ${esc(fmtDate(d.date))}</b><small>Nuit : ${esc(d.stay?.name||end?.name||"—")}</small></div>
+            <div><label>Nuit <input type="text" inputmode="decimal" placeholder="€" data-bn="${i}" value="${eurIn(d.nightCost)}"> €</label>
+            ${ferry?`<label>Ferry <input type="text" inputmode="decimal" placeholder="€" data-bf="${i}" value="${eurIn(d.ferryCost)}"> €</label>`:""}</div></div>`; }).join("")}
+      </div>
+    </details>
+    <p class="hint">Carburant au prix du jour en France${state.rules.priceManual>0?" (prix saisi à la main)":""} ; en Norvège il est plus cher, mets un prix à la main dans Réglages pour affiner.</p>
+  </div>`;
+}
+function bindBudget(v){
+  const d=app.querySelector("[data-budopen]"); if(d) d.addEventListener("toggle",()=>{ state.budOpen=d.open?v.id:null; });
+  const upd=()=>{ save(); render(); };
+  const pe=document.getElementById("bud-people"), bi=document.getElementById("bud-bikes");
+  if(pe) pe.onchange=()=>{ v.budget={...(v.budget||{}), people:Math.max(1,parseInt(pe.value)||1)}; upd(); };
+  if(bi) bi.onchange=()=>{ v.budget={...(v.budget||{}), bikes:Math.max(1,parseInt(bi.value)||1)}; upd(); };
+  app.querySelectorAll("[data-bn]").forEach(x=>x.onchange=()=>{ v.days[+x.dataset.bn].nightCost=parseEur(x.value); upd(); });
+  app.querySelectorAll("[data-bf]").forEach(x=>x.onchange=()=>{ v.days[+x.dataset.bf].ferryCost=parseEur(x.value); upd(); });
+}
+
+/* ---------- hébergements autour de l'étape du soir (OpenStreetMap) ---------- */
+const STAYS_KEY="rouleoupas.stays.v1";
+const stays={cache:{}, pending:{}, err:{}};
+try{ stays.cache=JSON.parse(localStorage.getItem(STAYS_KEY))||{}; }catch(e){}
+const STAY_KINDS={camp_site:"Camping", hotel:"Hôtel", motel:"Motel", guest_house:"Chambre d'hôte", hostel:"Auberge", chalet:"Chalet", alpine_hut:"Refuge", wilderness_hut:"Cabane", apartment:"Appartement"};
+const stayGroup = k => k==="camp_site"?"camp":["chalet","alpine_hut","wilderness_hut"].includes(k)?"cabin":"hotel";
+async function fetchStays(p){
+  const q=r=>`[out:json][timeout:40];nwr["tourism"~"^(camp_site|hotel|motel|guest_house|hostel|chalet|alpine_hut|wilderness_hut|apartment)$"]["name"](around:${r},${p.lat},${p.lon});out center tags 120;`;
+  let els=(await overpass(q(8000))).elements||[];
+  if(els.length<6) els=(await overpass(q(20000))).elements||[];
+  const seen=new Set();
+  return els.map(e=>{ const t=e.tags||{}, lat=e.lat??e.center?.lat, lon=e.lon??e.center?.lon; if(lat==null) return null;
+      const cabins=t.tourism==="camp_site" && (t.cabins==="yes"||t["camp_site:cabins"]==="yes"||/hytte|cabin|chalet/i.test(t.name||""));
+      return {name:String(t.name).slice(0,60), kind:t.tourism, cabins, lat:+lat.toFixed(5), lon:+lon.toFixed(5), km:+haversine(p,{lat,lon}).toFixed(1),
+        web:(t.website||t["contact:website"]||t.url||"").slice(0,200), stars:t.stars||""}; })
+    .filter(x=>x && !seen.has(x.name+x.kind) && seen.add(x.name+x.kind))
+    .sort((a,b)=>a.km-b.km).slice(0,40);
+}
+function getStays(p){
+  const k=p.lat.toFixed(3)+","+p.lon.toFixed(3);
+  return {list:stays.cache[k]?.list||null, pending:!!stays.pending[k], error:!!stays.err[k], key:k};
+}
+function loadStays(p){
+  const k=p.lat.toFixed(3)+","+p.lon.toFixed(3); if(stays.pending[k]) return;
+  stays.pending[k]=true; delete stays.err[k]; render();
+  fetchStays(p).then(list=>{ stays.cache[k]={at:Date.now(), list};
+      try{ localStorage.setItem(STAYS_KEY, JSON.stringify(stays.cache)); }catch(e){} })
+    .catch(()=>{ stays.err[k]=Date.now(); })
+    .finally(()=>{ delete stays.pending[k]; if(!editing()) render(); });
+}
+function staysPanel(d, i){
+  const end=d.points.at(-1); if(!end) return "";
+  const S=getStays(end), f=state.stayFilter||"all";
+  const safeUrl=u=>/^https?:\/\//i.test(u)?u:(u?"https://"+u:"");
+  const map=x=>`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.name)}%20${x.lat},${x.lon}`;
+  const item=(x,chosen)=>`<div class="stay${chosen?" chosen":""}"><div><b>${esc(x.name)}</b>
+      <small>${esc(STAY_KINDS[x.kind]||"Hébergement")}${x.cabins?" · chalets":""}${x.stars?` · ${esc(x.stars)}★`:""}${x.km!=null?` · ${String(x.km).replace(".",",")} km`:""}</small></div>
+    <div class="acts">${chosen?`<a class="btn btn-ghost" href="${wazeUrl(x)}" target="_blank" rel="noopener">Waze</a><button class="btn btn-ghost" data-unstay="${i}">Changer</button>`
+      :`<button class="btn btn-primary" data-stay="${i}" data-sname="${esc(x.name)}">Choisir</button>`}
+      ${x.web?`<a class="btn btn-ghost" href="${esc(safeUrl(x.web))}" target="_blank" rel="noopener">Site</a>`:""}<a class="btn btn-ghost" href="${map(x)}" target="_blank" rel="noopener">Plan</a></div></div>`;
+  let body;
+  if(d.stay) body=item(d.stay,true);
+  else if(S.list){
+    const L=S.list.filter(x=>f==="all"||(f==="camp"?x.kind==="camp_site":f==="cabin"?(stayGroup(x.kind)==="cabin"||x.cabins):stayGroup(x.kind)==="hotel"));
+    const n=g=>S.list.filter(x=>g==="camp"?x.kind==="camp_site":g==="cabin"?(stayGroup(x.kind)==="cabin"||x.cabins):stayGroup(x.kind)==="hotel").length;
+    body = !S.list.length ? `<p class="hint">Aucun hébergement référencé dans les 20 km. Cherche sur Booking ou le site de l'office de tourisme.</p>`
+      : `<div class="seg2" role="group">${[["all","Tous",S.list.length],["camp","Campings",n("camp")],["cabin","Cabanes",n("cabin")],["hotel","Hôtels",n("hotel")]].map(([k,l,c])=>`<button data-sfilter="${k}" aria-pressed="${f===k}">${l} ${c}</button>`).join("")}</div>
+        <div class="stays">${L.slice(0,12).map(x=>item(x,false)).join("")||`<p class="hint">Rien dans cette catégorie.</p>`}</div>
+        ${L.length>12?`<p class="hint">Les 12 plus proches sur ${L.length}.</p>`:""}`;
+  } else body = `<button class="btn btn-ghost" id="stay-load"${S.pending?" disabled":""}>${S.pending?"Recherche…":`Chercher où dormir près de ${esc(end.name)}`}</button>
+      ${S.error?`<p class="err">Recherche impossible pour le moment, réessaie.</p>`:""}`;
+  return `<div class="panel"><h3>Où dormir · J${i+1}</h3>${body}
+    <p class="hint">Campings, cabanes et hôtels référencés sur OpenStreetMap autour de ${esc(end.name)}. Vérifie les disponibilités et réserve sur leur site.</p></div>`;
+}
+function bindStays(v, d){
+  const b=document.getElementById("stay-load"); if(b) b.onclick=()=>loadStays(d.points.at(-1));
+  app.querySelectorAll("[data-sfilter]").forEach(x=>x.onclick=()=>{ state.stayFilter=x.dataset.sfilter; render(); });
+  app.querySelectorAll("[data-stay]").forEach(x=>x.onclick=()=>{ const S=getStays(d.points.at(-1)), it=(S.list||[]).find(y=>y.name===x.dataset.sname);
+    if(it){ d.stay=it; save(); render(); toast(`Nuit J${state.vday+1} : ${it.name}`); } });
+  app.querySelectorAll("[data-unstay]").forEach(x=>x.onclick=()=>{ delete d.stay; save(); render(); });
+}
+
 /* ---------- vue road trip ---------- */
 function openVoyage(id){
   const v=state.routes.find(x=>x.id===id); if(!v) return;
@@ -1576,7 +1768,7 @@ function renderVoyage(force){
     if(w.past) body=`<p class="hint">Cette journée est passée.</p>`;
     else if(w.later) body=`<p class="hint">Les prévisions du ${esc(fmtDate(d.date,{weekday:"long",day:"numeric",month:"long"}))} arriveront à partir du ${esc(fmtDate(w.later,{day:"numeric",month:"long"}))}, 16 jours avant. D'ici là, prépare ta tenue avec les normales de saison.</p>`;
     else if(w.data){
-      const nuit=d.points.at(-1).name;
+      const nuit=d.stay?.name||d.points.at(-1).name;
       body=wxBlock(`Jour ${state.vday+1}`, d, false, d.aller, w.data, d.date, true)
         + `<p class="hint">Nuitée : <b>${esc(nuit)}</b></p>` + wxFoot(w);
       marks=wxMarks(d,false,d.aller,w.data);
@@ -1604,13 +1796,15 @@ function renderVoyage(force){
       ${best}
       <div class="panel">${body}</div>
       ${d?navPanel(d,false,`Navigation · jour ${state.vday+1}`):""}
+      ${d&&ready(d)?staysPanel(d,state.vday):""}
       ${d&&ready(d)?infoPanels(d, d.date, toMin(d.aller.start), {first:state.vday===0}):""}
+      ${v.days.length?budgetPanel(v):""}
       <div class="bar">${shareButton(v)}<button class="btn btn-ghost" id="edit">Modifier le road trip</button></div>
     </div>`;
   document.getElementById("back").onclick=()=>{ state.view="list"; render(); };
   document.getElementById("refresh").onclick=()=>{ if(d&&ready(d)) getWx(d,d.date,true); render(); };
   document.getElementById("edit").onclick=()=>openVoyageEditor(v.id);
-  bindBest();
+  bindBest(); bindBudget(v); if(d) bindStays(v,d);
   app.querySelectorAll("[data-vday]").forEach(b=>b.onclick=()=>{ state.vday=+b.dataset.vday; state.bsel=null; render(); });
   bindNav(); bindShare(v);
 }
